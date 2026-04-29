@@ -1,0 +1,12 @@
+app:
+  name: sihan-live-backend
+  owner_id: nac
+  api_key: local-dev-key
+  host: 0.0.0.0
+  port: 8000
+knowledge_base:
+  storage_path: ./data/knowledge_store.json
+  chunk_size: 400
+  chunk_overlap: 80
+  allowed_roots:
+    - ./data/kb_seed
