@@ -1,0 +1,33 @@
+linux
+ubuntu-4918
+/home/linux
+==HOST==
+
+==MODEL_FILES_OVER_1MB==
+TOTAL_FILES 19
+  40.610 GB | 2026-04-27 19:54:10 | /home/linux/models/qwen3.6-hauhau/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf
+   0.838 GB | 2026-04-27 19:55:41 | /home/linux/models/qwen3.6-hauhau/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf
+   0.135 GB | 2026-04-28 18:49:56 | /home/linux/open-webui-venv/lib/python3.11/site-packages/open_webui/data/cache/whisper/models/models--Systran--faster-whisper-base/snapshots/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/model.bin
+   0.085 GB | 2026-04-27 23:55:09 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tf_model.h5
+   0.085 GB | 2026-04-27 23:55:15 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/pytorch_model.bin
+   0.085 GB | 2026-04-27 23:55:12 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/rust_model.ot
+   0.085 GB | 2024-11-06 17:31:41 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/fa97f6e7cb1a59073dff9e6b13e2715cf7475ac9/model.safetensors
+   0.085 GB | 2024-11-06 17:31:41 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/model.safetensors
+   0.084 GB | 2026-04-27 23:54:41 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model.onnx
+   0.084 GB | 2026-04-27 23:54:43 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_O1.onnx
+   0.084 GB | 2026-04-27 23:54:41 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_O2.onnx
+   0.084 GB | 2026-04-27 23:55:12 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_O3.onnx
+   0.084 GB | 2026-04-27 23:55:15 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/openvino/openvino_model.bin
+   0.042 GB | 2026-04-27 23:54:35 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_O4.onnx
+   0.021 GB | 2026-04-27 23:54:44 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_quint8_avx2.onnx
+   0.021 GB | 2026-04-27 23:54:41 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_qint8_avx512_vnni.onnx
+   0.021 GB | 2026-04-27 23:54:41 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_qint8_avx512.onnx
+   0.021 GB | 2026-04-27 23:54:41 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/onnx/model_qint8_arm64.onnx
+   0.021 GB | 2026-04-27 23:54:50 | /home/linux/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/openvino/openvino_model_qint8_quantized.bin
+
+==ROOT_SUMMARY==
+EXISTS /home/linux/models | files=2 | total=41.448 GB
+MISSING /data/.ollama
+EXISTS /home/linux/.cache/huggingface | files=75 | total=1.862 GB
+EXISTS /home/linux/CosyVoice | files=327 | total=0.007 GB
+EXISTS /home/linux/open-webui-venv/lib/python3.11/site-packages/open_webui/data/cache/whisper/models | files=10 | total=0.275 GB

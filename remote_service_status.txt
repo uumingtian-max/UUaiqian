@@ -1,0 +1,19 @@
+==HOST==
+linux
+ubuntu-4918
+/home/linux
+
+==PROCESS_CHECK==
+linux     290084       1  0 4月28 ?       00:00:00 /bin/bash /home/linux/LLaMA-Factory/start.sh
+linux     290093  290084  0 4月28 ?       00:02:28 /home/linux/anaconda3/envs/llama-factory/bin/python /home/linux/anaconda3/envs/llama-factory/bin/llamafactory-cli webui
+linux     311464       1  0 4月28 ?       00:03:42 /home/linux/open-webui-venv/bin/python3 /home/linux/open-webui-venv/bin/open-webui serve --host 0.0.0.0 --port 8001
+linux     747930       1  1 4月28 ?       00:05:56 ./build/bin/llama-server -m /home/linux/models/qwen3.6-hauhau/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf --mmproj /home/linux/models/qwen3.6-hauhau/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf --host 0.0.0.0 --port 8000 -c 8192 -ngl 99 --jinja --chat-template-kwargs {"enable_thinking":false} --reasoning-budget 0 --no-mmap -t 16 --flash-attn on
+
+==PORT_CHECK==
+LISTEN 0      512          0.0.0.0:8000       0.0.0.0:*    users:(("llama-server",pid=747930,fd=15))   
+
+==MODEL_DIR_LIST==
+total 12K
+drwxrwxr-x  3 linux linux 4.0K  4月 27 18:54 .
+drwxr-x--- 33 linux linux 4.0K  4月 28 19:04 ..
+drwxrwxr-x  2 linux linux 4.0K  4月 27 19:55 qwen3.6-hauhau
