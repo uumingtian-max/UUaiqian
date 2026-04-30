@@ -75,7 +75,8 @@
 <script>
 const API = 'http://175.155.64.171:61930';
 const MODEL = 'Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf';
-const VOICE = 'zh-CN-XiaoxiaoNeural';
+/** 服务端映射：alipay_lingguang → zh-CN-XiaoyiNeural（灵动清亮，贴近「支付宝灵光 / 纹声」气质） */
+const VOICE = 'alipay_lingguang';
 
 const LS_INTERACTION = 'sihan_interaction_mode';
 const LS_LAYOUT = 'sihan_layout_mode';
@@ -188,26 +189,60 @@ function stripStageDirectionsForTTS(text) {
 
 function humanizeText(text) {
   let t = (text || '').trim();
-  if (t.length > 18 && !/[，。！？；、…]/.test(t)) t = t.replace(/(.{12})/g, '$1，');
+  // 轻声、拖音处给 TTS 一点空格，便于按句合成时的自然停顿
+  t = t.replace(/(嗯+|诶|诶呀|好啦|别闹|好啦好啦)(?=[^\s，。！？])/g, '$1… ');
+  if (t.length > 22 && !/[，。！？；、…]/.test(t)) t = t.replace(/(.{14})/g, '$1，');
   t = t.replace(/([，、；])/g, '$1 ');
   t = t.replace(/([。！？])/g, '$1  ');
+  t = t.replace(/…/g, '… ');
   return t;
 }
 
+/** 全局基线 prosody；服务端仍会对每句再微调（dynamic_prosody） */
 function computeProsody(reply) {
-  const len = (reply || '').length;
-  const hasEmotion = /爱|想|抱|心疼|害羞|喜欢|难过|开心|嗯|哈|嘻|哼/.test(reply);
-  let rate = 0, pitch = 0, volume = 0;
-  if (len < 15) rate = 10; else if (len > 70) rate = -10; else if (len > 36) rate = -3;
-  if (/[，、；]/.test(reply)) rate -= 4;
-  if (/[！？]/.test(reply)) { pitch += 5; volume += 3; }
-  if (hasEmotion) { rate -= 5; pitch += 2; volume += 4; }
-  rate += (Math.random() * 4 - 2) | 0;
+  const s = reply || '';
+  const len = s.length;
+  const punct = (s.match(/[，。！？、；…]/g) || []).length;
+  const punctDensity = len > 0 ? punct / len : 0;
+  const hasEmotion = /爱|想|抱|心疼|害羞|委屈|喜欢|难过|开心|哼|嘻|嘛|呀|呐/.test(s);
+  const shy = /害羞|脸红|别这样|小声|轻轻|不敢/.test(s);
+  const exciting = /！[^(]*$/.test(s.trim()) || /太好|真的吗|哇/.test(s);
+
+  let rate = 0;
+  let pitch = -1;
+  let volume = 2;
+
+  if (len < 12) rate += 8;
+  else if (len > 95) rate -= 14;
+  else if (len > 55) rate -= 7;
+
+  rate -= Math.min(10, Math.round(punctDensity * 42));
+  if (/[？?]/.test(s)) {
+    pitch += 4;
+    rate -= 3;
+  }
+  if (exciting) {
+    pitch += 3;
+    volume += 2;
+    rate += 2;
+  }
+  if (hasEmotion) {
+    rate -= 6;
+    pitch += 2;
+    volume += 3;
+  }
+  if (shy) {
+    rate -= 8;
+    pitch += 1;
+    volume -= 2;
+  }
+  rate += (Math.random() * 6 - 3) | 0;
+
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   return {
-    rate: `${rate >= 0 ? '+' : ''}${clamp(rate, -20, 16)}%`,
-    pitch: `${(pitch >= 0 ? '+' : '') + clamp(pitch, -6, 10)}Hz`,
-    volume: `${(volume >= 0 ? '+' : '') + clamp(volume, -6, 8)}%`,
+    rate: `${rate >= 0 ? '+' : ''}${clamp(rate, -22, 18)}%`,
+    pitch: `${(pitch >= 0 ? '+' : '') + clamp(pitch, -8, 12)}Hz`,
+    volume: `${(volume >= 0 ? '+' : '') + clamp(volume, -8, 10)}%`,
   };
 }
 
@@ -340,6 +375,7 @@ async function sendInteraction(e) {
         rate: prosody.rate,
         pitch: prosody.pitch,
         volume: prosody.volume,
+        dynamic_prosody: true,
       }),
     });
 

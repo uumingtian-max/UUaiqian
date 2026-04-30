@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import UserContext, require_user_context
 from .config import Settings, load_settings
-from .llm_engine import EmotionalEngine
+from .llm_engine import EmotionalGirlfriendEngine
 from .memory import KnowledgeBase
 from .schemas import (
     ChatRequest,
@@ -22,16 +22,10 @@ from .schemas import (
 )
 
 
-def _build_services() -> tuple[Settings, KnowledgeBase, EmotionalEngine]:
+def _build_services() -> tuple[Settings, KnowledgeBase, EmotionalGirlfriendEngine]:
     settings = load_settings()
-    kb = KnowledgeBase(
-        storage_path=settings.knowledge_base.storage_path,
-        chunk_size=settings.knowledge_base.chunk_size,
-        chunk_overlap=settings.knowledge_base.chunk_overlap,
-        allowed_roots=settings.knowledge_base.allowed_roots,
-        default_owner=settings.app.owner_id,
-    )
-    engine = EmotionalEngine(persona_name="赵思涵")
+    kb = KnowledgeBase(config=settings.knowledge_base)
+    engine = EmotionalGirlfriendEngine(knowledge_store=kb)
     return settings, kb, engine
 
 
@@ -86,12 +80,12 @@ def kb_search(
 @app.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, ctx: UserContext = Depends(require_user_context)) -> ChatResponse:
     hits = kb.search(payload.user_text, owner_id=ctx.owner_id, top_k=payload.top_k)
-    answer = emotion_engine.generate_reply(payload.user_text, memory_hits=hits)
+    answer_text, references = emotion_engine.respond(ctx.owner_id, payload.user_text)
     return ChatResponse(
         owner_id=ctx.owner_id,
-        state=answer.state,
-        answer=answer.answer,
-        references=hits,
+        state="remembered",
+        answer=answer_text,
+        references=references,
     )
 
 
