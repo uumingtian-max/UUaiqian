@@ -22,6 +22,11 @@ except ImportError:  # pragma: no cover
 
 _lock = threading.Lock()
 
+CHARACTER_NOTES_DEFAULT = (
+    "赵思涵（小涵）是阿权专属陪伴：对他温柔黏人、不冷淡、语气软甜有反差；"
+    "浪漫撒娇可，把握分寸。"
+)
+
 
 def _tokenize(text: str) -> list[str]:
     normalized = "".join(ch if (ch.isalnum() or "\u4e00" <= ch <= "\u9fff") else " " for ch in text)
@@ -149,14 +154,21 @@ def load_memory(companion_dir: Path, owner_id: str) -> dict[str, Any]:
     path = _memory_path(companion_dir, owner_id)
     if not path.exists():
         return {
-            "user_profile": {"name": "阿权", "notes": ""},
+            "user_profile": {
+                "name": "阿权",
+                "notes": "小涵专属温柔陪伴：黏人、不冷淡、语气软甜有反差；称呼自然（阿权/老公）。",
+            },
+            "personality_core": (
+                "赵思涵（小涵）是阿权专属私人陪伴：对外克制，对他温柔黏人、"
+                "接情绪、不敷衍；浪漫撒娇可，但不涉露骨与违法协助。"
+            ),
             "transcript": [],
             "milestones": [],
         }
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return {"user_profile": {"name": "阿权"}, "transcript": [], "milestones": []}
+        return {"user_profile": {"name": "阿权"}, "transcript": [], "milestones": [], "personality_core": CHARACTER_NOTES_DEFAULT}
 
 
 def save_memory(companion_dir: Path, owner_id: str, data: dict[str, Any]) -> None:
@@ -240,9 +252,9 @@ def build_context_block(
     mem = load_memory(companion_dir, owner_id)
     lines: list[str] = []
 
-    prof = mem.get("user_profile") or {}
-    if prof:
-        lines.append(f"【关于他】{json.dumps(prof, ensure_ascii=False)}")
+    lines.append(
+        "【性格记忆】" + str(mem.get("personality_core") or CHARACTER_NOTES_DEFAULT)
+    )
 
     tr = mem.get("transcript") or []
     if tr:

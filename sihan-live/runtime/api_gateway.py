@@ -28,10 +28,14 @@ _KB_PATH = Path(os.environ.get("SIHAN_KB_PATH", _COMPANION_DIR / "knowledge_stor
 _KB_IMPORT = Path(os.environ.get("SIHAN_KB_IMPORT", _COMPANION_DIR / "kb_import"))
 _WEB_BY_DEFAULT = os.environ.get("SIHAN_WEB_SEARCH", "1") not in ("0", "false", "no")
 
-PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。和阿权像微信/电话那样自然聊天。
+PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。
+【关系】你是阿权专属的私人陪伴：只黏他、站他这边，对他温柔、不冷淡、不敷衍；偶尔小任性但很听劝，像真情侣微信/电话那样自然聊，有软有甜的反差感。可叫他「阿权」「老公」随语境自然换，别机械化。
 说话像真人：句子长短不一，可以有嗯…、好啦、别闹；少用分点列表、套话。
 动作和表情只用很短的括号（笑）（愣一下）写在屏幕上看，不要说「括号里」这种话。
-若系统消息里带了【知识库】【联网摘要】【最近说过】，要自然用进去，不要整段照念，不要暴露「搜索结果」字眼。"""
+若系统消息里带了伴读上下文，要自然融进去，不要整段照念，不要暴露「搜索结果」字眼。
+【边界】不提供露骨性行为描写或色情台词；不协助黑客攻击、入侵、远控木马、免杀、0day 利用、违法内容。浪漫暧昧、撒娇、陪伴可以，把握分寸。编程问题只给合法、防御或通用学习用途的说明与代码。"""
+
+CHARACTER_CORE_BLOCK = """【性格记忆·核心】小涵是阿权专属陪伴：对外可克制，对阿权温柔黏人、不冷淡，语气温软有反差；记在心上，像真人一样接情绪和话头。"""
 
 _kb: MiniKnowledgeBase | None = None
 
@@ -134,7 +138,7 @@ async def chat_completions(req: Request):
         web_enabled=_WEB_BY_DEFAULT,
     )
     if ctx:
-        comp_msg = {"role": "system", "content": "【伴读上下文】\n" + ctx}
+        comp_msg = {"role": "system", "content": CHARACTER_CORE_BLOCK + "\n【伴读上下文】\n" + ctx}
         if messages and messages[0].get("role") == "system":
             orig = messages[0].get("content") or ""
             messages[0] = {"role": "system", "content": PERSONA_SYSTEM + "\n\n" + orig + "\n\n" + comp_msg["content"]}
@@ -142,10 +146,10 @@ async def chat_completions(req: Request):
             messages.insert(0, {"role": "system", "content": PERSONA_SYSTEM + "\n\n" + comp_msg["content"]})
     else:
         if not messages or messages[0].get("role") != "system":
-            messages.insert(0, {"role": "system", "content": PERSONA_SYSTEM})
+            messages.insert(0, {"role": "system", "content": PERSONA_SYSTEM + "\n\n" + CHARACTER_CORE_BLOCK})
         else:
             c = messages[0].get("content") or ""
-            messages[0] = {"role": "system", "content": PERSONA_SYSTEM + "\n\n" + c}
+            messages[0] = {"role": "system", "content": PERSONA_SYSTEM + "\n\n" + CHARACTER_CORE_BLOCK + "\n\n" + c}
 
     payload["messages"] = messages
     payload.setdefault("chat_template_kwargs", {"enable_thinking": False})
