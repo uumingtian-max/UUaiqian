@@ -1,0 +1,404 @@
+/**
+ * Three.js r168：SkinnedMesh + HDR + Bloom/SSAO + AnimationMixer
+ * 由 index.html 在同一个页面内按需加载；容器为 #avatar3d-canvas-wrap
+ */
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/** 逻辑参考尺寸（实际按容器 clientWidth/Height） */
+const CONFIG = {
+  modelUrl: 'https://threejs.org/examples/models/gltf/Xbot.glb',
+  hdrUrl:
+    'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr',
+  clothingNameHints: {
+    outer: ['coat', 'outer', 'jacket', 'clothes', 'dress', 'shirt', 'xbot'],
+    underwear: ['underwear', 'under', 'lingerie', 'inner'],
+    body: ['body', 'skin', 'naked', 'base', 'mesh'],
+  },
+  animAlias: {
+    idle: ['idle', 'stand', 'breathing'],
+    talking: ['talk', 'speak', 'lip', 'conversation', 'gesture'],
+    pose: ['pose', 'salute', 'wave', 'dance'],
+    custom: ['custom', 'special'],
+  },
+  bloomStrength: 0.32,
+  bloomRadius: 0.38,
+  bloomThreshold: 0.84,
+  ssaoKernelRadius: 8,
+  ssaoMinDistance: 0.001,
+  ssaoMaxDistance: 0.1,
+};
+
+const state = {
+  container: null,
+  scene: null,
+  camera: null,
+  renderer: null,
+  controls: null,
+  clock: new THREE.Clock(),
+  mixer: null,
+  skinnedMeshes: [],
+  clothingBuckets: { outer: [], underwear: [], body: [], other: [] },
+  clipBySemantic: {},
+  faceMesh: null,
+  composer: null,
+  currentAction: null,
+  running: false,
+  raf: 0,
+};
+
+function initThreeBasics() {
+  state.container = document.getElementById('avatar3d-canvas-wrap');
+  if (!state.container) throw new Error('#avatar3d-canvas-wrap missing');
+
+  state.scene = new THREE.Scene();
+  state.scene.background = new THREE.Color(0x06060a);
+
+  const r = state.container.getBoundingClientRect();
+  const asp = r.width / Math.max(r.height, 1);
+
+  state.camera = new THREE.PerspectiveCamera(42, asp, 0.1, 200);
+  state.camera.position.set(0, 1.35, 3.2);
+  state.camera.lookAt(0, 1, 0);
+
+  state.renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    powerPreference: 'high-performance',
+  });
+  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  state.renderer.setSize(r.width, r.height, false);
+  state.renderer.setClearColor(0x000000, 0);
+  state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+  state.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  state.renderer.toneMappingExposure = 1.0;
+  state.renderer.shadowMap.enabled = true;
+  state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  state.container.appendChild(state.renderer.domElement);
+
+  state.controls = new OrbitControls(state.camera, state.renderer.domElement);
+  state.controls.target.set(0, 1, 0);
+  state.controls.enableDamping = true;
+  state.controls.dampingFactor = 0.06;
+  state.controls.minDistance = 1.2;
+  state.controls.maxDistance = 8;
+  state.controls.maxPolarAngle = Math.PI * 0.49;
+
+  const hemi = new THREE.HemisphereLight(0x8866bb, 0x222233, 0.35);
+  state.scene.add(hemi);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(2, 6, 3);
+  dir.castShadow = true;
+  dir.shadow.mapSize.set(2048, 2048);
+  state.scene.add(dir);
+
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(4, 48),
+    new THREE.MeshStandardMaterial({
+      color: 0x14141c,
+      roughness: 0.92,
+      metalness: 0.04,
+    })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  state.scene.add(ground);
+}
+
+async function loadEnvironmentHdr() {
+  const pmrem = new THREE.PMREMGenerator(state.renderer);
+  pmrem.compileEquirectangularShader();
+  return new Promise((resolve) => {
+    new RGBELoader().load(
+      CONFIG.hdrUrl,
+      (tex) => {
+        tex.mapping = THREE.EquirectangularReflectionMapping;
+        const env = pmrem.fromEquirectangular(tex).texture;
+        state.scene.environment = env;
+        tex.dispose();
+        pmrem.dispose();
+        resolve(true);
+      },
+      undefined,
+      () => {
+        pmrem.dispose();
+        resolve(false);
+      }
+    );
+  });
+}
+
+function classifyClothingMeshes(root) {
+  const hints = CONFIG.clothingNameHints;
+  const buckets = state.clothingBuckets;
+  Object.keys(buckets).forEach((k) => (buckets[k] = []));
+
+  root.traverse((obj) => {
+    if (!obj.isMesh) return;
+    const n = (obj.name || '').toLowerCase();
+    let placed = false;
+    for (const key of ['outer', 'underwear', 'body']) {
+      for (const h of hints[key] || []) {
+        if (n.includes(h.toLowerCase())) {
+          buckets[key].push(obj);
+          placed = true;
+          break;
+        }
+      }
+      if (placed) break;
+    }
+    if (!placed) buckets.other.push(obj);
+  });
+}
+
+function changeClothes(level) {
+  const b = state.clothingBuckets;
+  const setVis = (arr, v) => arr.forEach((m) => (m.visible = v));
+  switch (level) {
+    case 0:
+      setVis(b.outer, true);
+      setVis(b.underwear, true);
+      setVis(b.body, true);
+      setVis(b.other, true);
+      break;
+    case 1:
+      setVis(b.outer, false);
+      setVis(b.underwear, true);
+      setVis(b.body, true);
+      break;
+    case 2:
+      setVis(b.outer, false);
+      setVis(b.underwear, false);
+      setVis(b.body, true);
+      break;
+    case 3:
+      setVis(b.outer, true);
+      setVis(b.underwear, false);
+      setVis(b.body, false);
+      break;
+    default:
+      break;
+  }
+}
+
+function resolveClipsFromGltf(gltf) {
+  const clips = gltf.animations || [];
+  const semantic = {};
+
+  function findClip(keywords) {
+    const lower = (keywords || []).map((k) => k.toLowerCase());
+    for (const clip of clips) {
+      const name = (clip.name || '').toLowerCase();
+      if (lower.some((kw) => name.includes(kw))) return clip;
+    }
+    return null;
+  }
+
+  for (const sem of Object.keys(CONFIG.animAlias)) {
+    const clip = findClip(CONFIG.animAlias[sem]);
+    if (clip) semantic[sem] = clip;
+  }
+  if (!semantic.idle && clips[0]) semantic.idle = clips[0];
+  if (!semantic.talking && semantic.idle) semantic.talking = semantic.idle;
+
+  state.clipBySemantic = semantic;
+}
+
+function playPose(name) {
+  if (!state.mixer) return;
+  const clip =
+    state.clipBySemantic[name] || state.clipBySemantic.idle;
+  if (!clip) return;
+  const next = state.mixer.clipAction(clip);
+  next.reset().fadeIn(0.28).setLoop(THREE.LoopRepeat, Infinity).play();
+  if (state.currentAction && state.currentAction !== next) {
+    state.currentAction.fadeOut(0.28);
+  }
+  state.currentAction = next;
+}
+
+function pickFaceMesh(root) {
+  let face = null;
+  root.traverse((o) => {
+    if (
+      o.isSkinnedMesh &&
+      o.morphTargetDictionary &&
+      Object.keys(o.morphTargetDictionary).length > 0
+    ) {
+      face = o;
+    }
+  });
+  state.faceMesh = face;
+}
+
+function setExpression(dict) {
+  const mesh = state.faceMesh;
+  if (!mesh || !mesh.morphTargetDictionary) return;
+  const infl = mesh.morphTargetInfluences;
+  const md = mesh.morphTargetDictionary;
+  for (const [key, val] of Object.entries(dict)) {
+    const idx = md[key];
+    if (idx !== undefined) infl[idx] = THREE.MathUtils.clamp(val, 0, 1);
+  }
+}
+
+async function loadCharacter() {
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().load(
+      CONFIG.modelUrl,
+      (gltf) => {
+        const root = gltf.scene;
+        state.skinnedMeshes = [];
+        root.traverse((o) => {
+          if (o.isSkinnedMesh) {
+            o.frustumCulled = false;
+            o.castShadow = true;
+            o.receiveShadow = true;
+            state.skinnedMeshes.push(o);
+          } else if (o.isMesh) {
+            o.castShadow = true;
+            o.receiveShadow = true;
+          }
+        });
+
+        const box = new THREE.Box3().setFromObject(root);
+        const c = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const targetH = 1.85;
+        const s = targetH / maxDim;
+        root.scale.setScalar(s);
+        root.position.sub(c.multiplyScalar(s));
+        root.position.y = 0;
+
+        state.scene.add(root);
+        classifyClothingMeshes(root);
+        pickFaceMesh(root);
+        resolveClipsFromGltf(gltf);
+        state.mixer = new THREE.AnimationMixer(root);
+        playPose('idle');
+        resolve();
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
+function initPostProcessing() {
+  const r = state.container.getBoundingClientRect();
+  const w = r.width;
+  const h = r.height;
+  const composer = new EffectComposer(state.renderer);
+  composer.addPass(new RenderPass(state.scene, state.camera));
+
+  composer.addPass(
+    new UnrealBloomPass(
+      new THREE.Vector2(w, h),
+      CONFIG.bloomStrength,
+      CONFIG.bloomRadius,
+      CONFIG.bloomThreshold
+    )
+  );
+
+  const ssao = new SSAOPass(state.scene, state.camera, w, h);
+  ssao.kernelRadius = CONFIG.ssaoKernelRadius;
+  ssao.minDistance = CONFIG.ssaoMinDistance;
+  ssao.maxDistance = CONFIG.ssaoMaxDistance;
+  ssao.output = SSAOPass.OUTPUT.Default;
+  composer.addPass(ssao);
+  composer.addPass(new OutputPass());
+  state.composer = composer;
+}
+
+function onResize() {
+  if (!state.container || !state.camera) return;
+  const rect = state.container.getBoundingClientRect();
+  const w = rect.width;
+  const h = Math.max(rect.height, 1);
+  state.camera.aspect = w / h;
+  state.camera.updateProjectionMatrix();
+  state.renderer.setSize(w, h, false);
+  if (state.composer) {
+    state.composer.setSize(w, h);
+    state.composer.passes.forEach((p) => {
+      if (p.setSize) p.setSize(w, h);
+    });
+  }
+}
+
+function animateLoop() {
+  if (!state.running) return;
+  state.raf = requestAnimationFrame(animateLoop);
+  const dt = state.clock.getDelta();
+  if (state.controls) state.controls.update();
+  if (state.mixer) state.mixer.update(dt);
+  if (state.composer) state.composer.render();
+  else state.renderer.render(state.scene, state.camera);
+}
+
+/** 启动 3D 场景（幂等：已启动则只 resize） */
+export async function initSihanAvatar3D() {
+  if (state.renderer) {
+    onResize();
+    return;
+  }
+  initThreeBasics();
+  await loadEnvironmentHdr();
+  initPostProcessing();
+  window.addEventListener('resize', onResize);
+  onResize();
+  try {
+    await loadCharacter();
+  } catch (e) {
+    console.warn('[avatar3d] glTF/HDR 加载失败（网络或 CORS）', e);
+  }
+  state.running = true;
+  animateLoop();
+}
+
+export function stopSihanAvatar3D() {
+  state.running = false;
+  if (state.raf) cancelAnimationFrame(state.raf);
+  window.removeEventListener('resize', onResize);
+  if (state.renderer) {
+    state.container?.removeChild(state.renderer.domElement);
+    state.renderer.dispose();
+  }
+  Object.assign(state, {
+    container: null,
+    scene: null,
+    camera: null,
+    renderer: null,
+    controls: null,
+    mixer: null,
+    composer: null,
+    currentAction: null,
+    skinnedMeshes: [],
+    clipBySemantic: {},
+    faceMesh: null,
+    clothingBuckets: { outer: [], underwear: [], body: [], other: [] },
+  });
+}
+
+export const VirtualAvatar = {
+  changeClothes,
+  playPose,
+  setExpression,
+  get CONFIG() {
+    return CONFIG;
+  },
+};
+
+if (typeof window !== 'undefined') {
+  window.VirtualAvatar = VirtualAvatar;
+  window.initSihanAvatar3D = initSihanAvatar3D;
+}
