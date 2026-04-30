@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 import edge_tts
+from edge_tts.exceptions import NoAudioReceived
 
 app = FastAPI(title="edge-tts-service")
 
@@ -99,21 +100,30 @@ async def _synthesize_chunk(
     pitch_hz: int,
     volume_str: str,
 ) -> bytes:
-    comm_kwargs: dict = {
-        "text": text,
-        "voice": voice,
-        "rate": _fmt_rate(rate_pct),
-        "pitch": _fmt_pitch(pitch_hz),
-    }
+    async def _once(r: int, p: int) -> bytes:
+        comm_kwargs: dict = {
+            "text": text,
+            "voice": voice,
+            "rate": _fmt_rate(r),
+            "pitch": _fmt_pitch(p),
+        }
+        try:
+            communicate = edge_tts.Communicate(volume=volume_str, **comm_kwargs)
+        except TypeError:
+            communicate = edge_tts.Communicate(**comm_kwargs)
+        buf = io.BytesIO()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buf.write(chunk["data"])
+        return buf.getvalue()
+
     try:
-        communicate = edge_tts.Communicate(volume=volume_str, **comm_kwargs)
-    except TypeError:
-        communicate = edge_tts.Communicate(**comm_kwargs)
-    buf = io.BytesIO()
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            buf.write(chunk["data"])
-    return buf.getvalue()
+        return await _once(rate_pct, pitch_hz)
+    except NoAudioReceived:
+        try:
+            return await _once(0, 0)
+        except NoAudioReceived:
+            return b""
 
 
 class SpeechReq(BaseModel):
@@ -151,7 +161,16 @@ async def speech(req: SpeechReq):
     pieces: list[bytes] = []
 
     if req.dynamic_prosody and len(text) <= 3000:
-        sentences = split_sentences(text)
+        raw_sents = split_sentences(text)
+        sentences: list[str] = []
+        for s in raw_sents:
+            s = s.strip()
+            if not s:
+                continue
+            if sentences and len(s) < 4:
+                sentences[-1] = (sentences[-1] + s).strip()
+            else:
+                sentences.append(s)
         if len(sentences) > 24:
             sentences = [text]
         for i, sent in enumerate(sentences):
