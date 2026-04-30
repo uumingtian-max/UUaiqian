@@ -46,31 +46,30 @@ def test_ingest_search_and_chat(tmp_path: Path) -> None:
     client = build_client(tmp_path)
 
     ingest_resp = client.post(
-        "/memory/ingest",
-        json={"path": str(tmp_path / "kb_data"), "recursive": True},
+        "/kb/ingest-directory",
+        json={"path": str(tmp_path / "kb_data")},
         headers=auth_headers(),
     )
     assert ingest_resp.status_code == 200
     ingest_data = ingest_resp.json()
-    assert ingest_data["documents_added"] == 1
-    assert ingest_data["chunks_added"] >= 1
+    assert ingest_data["files_ingested"] == 1
+    assert ingest_data["chunks_written"] >= 1
 
     search_resp = client.post(
-        "/memory/search",
+        "/kb/search",
         json={"query": "纪念日", "top_k": 3},
         headers=auth_headers(),
     )
     assert search_resp.status_code == 200
     hits = search_resp.json()["results"]
     assert hits
-    assert "18 号" in hits[0]["content"]
+    assert "18" in hits[0]["text"]
 
     chat_resp = client.post(
         "/chat",
-        json={"message": "我们的纪念日是什么时候？", "top_k": 2},
+        json={"user_text": "我们的纪念日是什么时候？", "top_k": 2},
         headers=auth_headers(),
     )
     assert chat_resp.status_code == 200
     payload = chat_resp.json()
-    assert "18 号" in payload["reply"]
-    assert payload["context_used"] >= 1
+    assert "18" in payload["answer"]

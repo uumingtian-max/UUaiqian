@@ -10,6 +10,19 @@
     .stage{flex:1;position:relative;min-width:0;background:#05050f url('https://i.imgur.com/8vK9L2P.jpeg') center/cover no-repeat;overflow:hidden}
     body.code-mode .stage{flex:0 0 30%;min-width:0;max-width:none;border-right:1px solid rgba(140,170,230,.35)}
     .mask{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,35,.65),rgba(10,5,25,.92))}
+    /* 分层角色：底图 + 实时表情层（随语音/文字驱动） */
+    .character-stack{position:absolute;inset:0;pointer-events:none;z-index:3}
+    .char-base{position:absolute;inset:0;background:inherit;background-size:cover;background-position:center;filter:saturate(1.05) contrast(1.02);transform:scale(1.02);transition:filter .35s ease, transform .6s ease}
+    .char-mood{position:absolute;inset:0;mix-blend-mode:soft-light;opacity:0;transition:opacity .35s ease, transform .5s ease;background:radial-gradient(ellipse 70% 55% at 50% 38%,rgba(255,160,200,.42),transparent 62%)}
+    .char-mood.active{opacity:1}
+    .char-mood.shy{background:radial-gradient(ellipse 65% 50% at 50% 40%,rgba(255,120,150,.38),transparent 58%)}
+    .char-mood.happy{background:radial-gradient(ellipse 72% 55% at 48% 36%,rgba(255,220,160,.35),transparent 60%)}
+    .char-mood.tease{background:radial-gradient(ellipse 68% 52% at 52% 38%,rgba(255,100,180,.32),transparent 58%)}
+    .char-mood.think{background:radial-gradient(ellipse 60% 48% at 50% 42%,rgba(160,190,255,.28),transparent 55%)}
+    .char-breathe{position:absolute;inset:-2%;background:transparent;animation:breathe 5.5s ease-in-out infinite}
+    @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.012)}}
+    body.speaking .char-base{transform:scale(1.028)}
+    body.speaking .char-breathe{animation-duration:3.2s}
     .topbar{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;z-index:10;gap:8px;flex-wrap:wrap}
     .chip{background:rgba(0,0,0,.6);border:1px solid rgba(180,200,255,.4);border-radius:999px;padding:6px 12px;font-size:12px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4)}
     .dot{display:inline-block;width:8px;height:8px;border-radius:999px;background:#4cff97;box-shadow:0 0 12px #4cff97;margin-right:5px;vertical-align:middle}
@@ -41,6 +54,10 @@
   <div id="appRoot">
   <div class="stage">
     <div class="mask"></div>
+    <div class="character-stack" aria-hidden="true">
+      <div class="char-base char-breathe" id="charBase"></div>
+      <div class="char-mood" id="charMood"></div>
+    </div>
 
     <div class="topbar">
       <div class="chip"><span class="dot"></span>赵思涵</div>
@@ -75,8 +92,20 @@
 <script>
 const API = 'http://175.155.64.171:61930';
 const MODEL = 'Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf';
+/** 网关伴读与长期记忆分区（与 companion_brain 一致） */
+const OWNER_ID = 'nac';
+const API_KEY = 'local-dev-key';
+
+function apiHeadersJson() {
+  return {
+    'Content-Type': 'application/json',
+    'X-Owner-Id': OWNER_ID,
+    'X-API-Key': API_KEY,
+  };
+}
 /** 服务端映射：alipay_lingguang → zh-CN-XiaoyiNeural（灵动清亮，贴近「支付宝灵光 / 纹声」气质） */
 const VOICE = 'alipay_lingguang';
+const CHAR_BG = "url('https://i.imgur.com/8vK9L2P.jpeg')";
 
 const LS_INTERACTION = 'sihan_interaction_mode';
 const LS_LAYOUT = 'sihan_layout_mode';
@@ -85,6 +114,8 @@ let pendingMedia = null;
 let lastAudioUrl = null;
 let sending = false;
 let conversationHistory = [];
+let lastReplyRaw = '';
+let moodAnim = null;
 
 /** text = 小涵回复也显示在气泡里；voice = 只播语音，不显示她的正文（仍可向模型要内容用于 TTS） */
 let interactionMode = localStorage.getItem(LS_INTERACTION) || 'text';
@@ -97,6 +128,86 @@ function setReply(html) {
 
 function applyLayout() {
   document.body.classList.toggle('code-mode', layoutMode === 'code');
+}
+
+function initCharacterLayers() {
+  const b = document.getElementById('charBase');
+  if (b) {
+    b.style.backgroundImage = CHAR_BG;
+    b.style.backgroundSize = 'cover';
+    b.style.backgroundPosition = 'center';
+  }
+}
+initCharacterLayers();
+
+function inferMoodFromText(text) {
+  const t = text || '';
+  if (/害羞|脸红|别这样|不好意思|人家/.test(t)) return 'shy';
+  if (/坏笑|哼|调皮|逗你/.test(t)) return 'tease';
+  if (/开心|太好|嘻嘻|哈哈|真好/.test(t)) return 'happy';
+  if (/想想|嗯…|怎么说呢|让我想想/.test(t)) return 'think';
+  return '';
+}
+
+function setMoodClass(mood) {
+  const el = document.getElementById('charMood');
+  if (!el) return;
+  el.className = 'char-mood' + (mood ? ' ' + mood : '');
+  el.classList.toggle('active', !!mood);
+}
+
+function setMoodFromAssistantText(text) {
+  const m = inferMoodFromText(text);
+  setMoodClass(m);
+}
+
+function clearSpeakingSync() {
+  if (moodAnim) cancelAnimationFrame(moodAnim);
+  moodAnim = null;
+  document.body.classList.remove('speaking');
+}
+
+function attachAudioMoodSync(audio) {
+  const el = document.getElementById('charMood');
+  if (!el || !lastReplyRaw) return;
+  const baseMood = inferMoodFromText(lastReplyRaw) || 'think';
+  setMoodClass(baseMood);
+  el.classList.add('active');
+  const strip = lastReplyRaw
+    .replace(/（[^）]*）/g, '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/【[^】]*】/g, '');
+  const seg = (strip.match(/[^。！？…]+[。！？…]?/g) || [strip]).filter(Boolean);
+  let total = Math.max(audio.duration || 0, 0.001);
+
+  function tick() {
+    if (!audio || audio.paused || audio.ended) {
+      clearSpeakingSync();
+      setMoodFromAssistantText(lastReplyRaw);
+      return;
+    }
+    document.body.classList.add('speaking');
+    const d = audio.duration;
+    if (d && !Number.isNaN(d)) total = Math.max(d, 0.001);
+    const t = audio.currentTime;
+    const ratio = t / total;
+    const idx = Math.min(seg.length - 1, Math.max(0, Math.floor(ratio * seg.length)));
+    const sub = inferMoodFromText(seg[idx]) || baseMood;
+    el.className = 'char-mood active ' + sub;
+    moodAnim = requestAnimationFrame(tick);
+  }
+  function startTick() {
+    total = Math.max(audio.duration || 0.001, 0.001);
+    if (moodAnim) cancelAnimationFrame(moodAnim);
+    moodAnim = requestAnimationFrame(tick);
+  }
+  audio.addEventListener('loadedmetadata', startTick, { once: true });
+  audio.addEventListener('play', startTick, { once: false });
+  audio.addEventListener('ended', clearSpeakingSync);
+  audio.addEventListener('pause', () => {
+    if (audio.duration && audio.currentTime >= audio.duration - 0.05) return;
+    document.body.classList.remove('speaking');
+  });
 }
 
 /** 从用户话里切换模式（不必整句只有命令） */
@@ -282,9 +393,11 @@ function renderStudio(reply) {
 
 async function playBlob(blob) {
   const audio = document.getElementById('audioPlayer');
+  clearSpeakingSync();
   if (lastAudioUrl) URL.revokeObjectURL(lastAudioUrl);
   lastAudioUrl = URL.createObjectURL(blob);
   audio.src = lastAudioUrl;
+  attachAudioMoodSync(audio);
   try { await audio.play(); return true; } catch (e) { return false; }
 }
 
@@ -327,7 +440,7 @@ async function sendInteraction(e) {
 
     const chatRes = await fetch(`${API}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeadersJson(),
       body: JSON.stringify({
         model: MODEL,
         messages,
@@ -341,6 +454,8 @@ async function sendInteraction(e) {
 
     const data = await chatRes.json();
     let reply = (data?.choices?.[0]?.message?.content || '喂…我在呢。').trim();
+    lastReplyRaw = reply;
+    setMoodFromAssistantText(reply);
 
     conversationHistory.push({ role: 'assistant', content: reply });
 
@@ -368,7 +483,7 @@ async function sendInteraction(e) {
 
     const ttsRes = await fetch(`${API}/v1/audio/speech`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeadersJson(),
       body: JSON.stringify({
         input: ttsIn.slice(0, 2800),
         voice: VOICE,
