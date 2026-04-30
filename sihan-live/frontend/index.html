@@ -16,15 +16,21 @@
   <style>
     html,body{margin:0;width:100%;height:100%;background:#0a0d12;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;color:#fff;overflow:hidden}
     #appRoot{position:fixed;inset:0;display:flex;flex-direction:row;}
-    .stage{flex:1;position:relative;min-width:0;background:#05050f center/cover no-repeat;overflow:hidden}
+    .stage{flex:1;position:relative;min-width:0;background:#0a0b0f center/cover no-repeat;overflow:hidden}
     body.code-mode .stage{flex:0 0 30%;min-width:0;max-width:none;border-right:1px solid rgba(140,170,230,.35)}
+    /* 真实场景摄影底图（室内/实景），在立绘与 3D 之下 */
+    .real-scene-bg{position:absolute;inset:0;z-index:0;background-color:#12151c;background-size:cover;background-position:center center;background-repeat:no-repeat;transform:scale(1.04);animation:sceneKenBurns 42s ease-in-out infinite alternate;will-change:transform}
+    @keyframes sceneKenBurns{
+      0%{transform:scale(1.04) translate(0,0)}
+      100%{transform:scale(1.1) translate(-0.6%,-0.4%)}
+    }
     /* 3D 层在上；3D 开启时保留淡淡 2D 底图（不撤掉立绘） */
     #avatarSceneRoot{position:absolute;inset:0;z-index:3;pointer-events:auto}
     #avatar3d-canvas-wrap{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .45s ease}
     body.avatar-3d #avatar3d-canvas-wrap{opacity:1;pointer-events:auto}
     #avatar3d-canvas-wrap canvas{display:block;width:100%;height:100%;touch-action:none}
-    .mask{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,35,.5),rgba(10,5,25,.88));z-index:1;pointer-events:none}
-    body.avatar-3d .mask{background:linear-gradient(180deg,rgba(8,8,16,.25),rgba(5,5,12,.75))}
+    .mask{position:absolute;inset:0;background:linear-gradient(180deg,rgba(18,16,28,.42),rgba(8,6,16,.82));z-index:1;pointer-events:none}
+    body.avatar-3d .mask{background:linear-gradient(180deg,rgba(10,12,18,.35),rgba(4,5,10,.78))}
     /* 2D 立绘：默认整页；3D 时半透明垫在模型后 */
     .character-stack{position:absolute;inset:0;pointer-events:none;z-index:2;transition:opacity .45s ease}
     body.avatar-3d .character-stack{opacity:0.22}
@@ -69,6 +75,7 @@
 <body>
   <div id="appRoot">
   <div class="stage">
+    <div class="real-scene-bg" id="realSceneBg" aria-hidden="true"></div>
     <div class="mask"></div>
     <div class="character-stack" aria-hidden="true">
       <div class="char-base char-breathe" id="charBase"></div>
@@ -128,6 +135,9 @@ function apiHeadersJson() {
 /** 服务端映射：alipay_lingguang → zh-CN-XiaoyiNeural（灵动清亮，贴近「支付宝灵光 / 纹声」气质） */
 const VOICE = 'alipay_lingguang';
 const CHAR_BG = "url('https://i.imgur.com/8vK9L2P.jpeg')";
+/** 2D 全层实景底图：?scene= 或 localStorage sihan_scene_bg_url；默认室内实景照片 */
+const DEFAULT_SCENE_BG =
+  "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=2400&q=85";
 
 const LS_INTERACTION = 'sihan_interaction_mode';
 const LS_LAYOUT = 'sihan_layout_mode';
@@ -205,7 +215,25 @@ function applyLayout() {
   document.body.classList.toggle('code-mode', layoutMode === 'code');
 }
 
+function resolveSceneBackgroundUrl() {
+  try {
+    const u = new URL(window.location.href);
+    const q = u.searchParams.get('scene');
+    if (q && q.trim()) return decodeURIComponent(q.trim());
+  } catch (e) { /* ignore */ }
+  try {
+    const ls = localStorage.getItem('sihan_scene_bg_url');
+    if (ls && ls.trim()) return ls.trim();
+  } catch (e) { /* ignore */ }
+  return DEFAULT_SCENE_BG;
+}
+
 function initCharacterLayers() {
+  const sceneEl = document.getElementById('realSceneBg');
+  if (sceneEl) {
+    const u = resolveSceneBackgroundUrl();
+    sceneEl.style.backgroundImage = u.startsWith('url(') ? u : `url('${u.replace(/'/g, '%27')}')`;
+  }
   const b = document.getElementById('charBase');
   if (b) {
     b.style.backgroundImage = CHAR_BG;

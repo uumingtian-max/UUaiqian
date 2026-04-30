@@ -566,7 +566,7 @@ function initThreeBasics() {
   if (!state.container) throw new Error('#avatar3d-canvas-wrap missing');
 
   state.scene = new THREE.Scene();
-  state.scene.background = new THREE.Color(0x06060a);
+  state.scene.background = new THREE.Color(0x12151c);
 
   const r = state.container.getBoundingClientRect();
   const asp = r.width / Math.max(r.height, 1);
@@ -624,9 +624,9 @@ function initThreeBasics() {
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
     new THREE.MeshStandardMaterial({
-      color: 0x12121a,
-      roughness: 0.92,
-      metalness: 0.04,
+      color: 0x1c1e28,
+      roughness: 0.94,
+      metalness: 0.02,
     })
   );
   ground.rotation.x = -Math.PI / 2;
@@ -644,6 +644,7 @@ async function loadEnvironmentHdr() {
         tex.mapping = THREE.EquirectangularReflectionMapping;
         const env = pmrem.fromEquirectangular(tex).texture;
         state.scene.environment = env;
+        state.scene.background = env;
         tex.dispose();
         pmrem.dispose();
         resolve(true);
