@@ -13,11 +13,42 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-/** 逻辑参考尺寸（实际按容器 clientWidth/Height） */
+/** 逻辑参考尺寸（实际按容器 clientWidth/Height）
+ * 模型 URL 优先级：地址栏 ?gltf= 或 ?model= → localStorage sihan_gltf_url → 默认 XBot 占位
+ */
+function resolveModelUrl() {
+  try {
+    const u = new URL(window.location.href);
+    const q = u.searchParams.get('gltf') || u.searchParams.get('model');
+    if (q && q.trim()) return decodeURIComponent(q.trim());
+  } catch (e) { /* ignore */ }
+  try {
+    const ls = localStorage.getItem('sihan_gltf_url');
+    if (ls && ls.trim()) return ls.trim();
+  } catch (e) { /* ignore */ }
+  return 'https://threejs.org/examples/models/gltf/Xbot.glb';
+}
+
+function resolveHdrUrl() {
+  try {
+    const u = new URL(window.location.href);
+    const q = u.searchParams.get('hdr');
+    if (q && q.trim()) return decodeURIComponent(q.trim());
+  } catch (e) { /* ignore */ }
+  try {
+    const ls = localStorage.getItem('sihan_hdr_url');
+    if (ls && ls.trim()) return ls.trim();
+  } catch (e) { /* ignore */ }
+  return 'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr';
+}
+
 const CONFIG = {
-  modelUrl: 'https://threejs.org/examples/models/gltf/Xbot.glb',
-  hdrUrl:
-    'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr',
+  get modelUrl() {
+    return resolveModelUrl();
+  },
+  get hdrUrl() {
+    return resolveHdrUrl();
+  },
   clothingNameHints: {
     outer: ['coat', 'outer', 'jacket', 'clothes', 'dress', 'shirt', 'xbot'],
     underwear: ['underwear', 'under', 'lingerie', 'inner'],
