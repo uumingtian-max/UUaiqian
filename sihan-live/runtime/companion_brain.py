@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
+import concurrent.futures
 import json
 import math
 import re
 import threading
 from pathlib import Path
 from typing import Any
+
+# 联网搜索在部分网络环境下较慢，避免阻塞整轮对话
+_WEB_SEARCH_TIMEOUT_SEC = float(__import__("os").environ.get("SIHAN_WEB_SEARCH_TIMEOUT", "2.8"))
+_WEB_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="ddg")
 
 # Optional search
 try:
@@ -187,13 +191,14 @@ def remember_turn(
         save_memory(companion_dir, owner_id, mem)
 
 
-def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
+def _web_search_impl(query: str, max_results: int) -> list[dict[str, str]]:
     if not query.strip() or DDGS is None:
         return []
     try:
         rows = None
         if hasattr(DDGS, "__enter__"):
-            with DDGS() as ddgs:
+            ctx = DDGS()
+            with ctx as ddgs:
                 rows = list(ddgs.text(query, max_results=max_results))
         else:
             ddgs = DDGS()
@@ -206,6 +211,18 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
             if title or body:
                 out.append({"title": title, "url": href, "snippet": body})
         return out
+    except Exception:
+        return []
+
+
+def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
+    """带超时；超时返回空列表，避免拖慢整轮回复。"""
+    fut = _WEB_POOL.submit(_web_search_impl, query, max_results)
+    done, _ = concurrent.futures.wait([fut], timeout=_WEB_SEARCH_TIMEOUT_SEC)
+    if fut not in done:
+        return []
+    try:
+        return fut.result()
     except Exception:
         return []
 
@@ -258,11 +275,17 @@ def build_context_block(
 
 
 def should_web_search(user_text: str) -> bool:
+    """仅在「明确要查资料」时说联网；避免日常聊天里的「什么」「？」误触发（会多等几秒）。"""
     t = user_text.strip()
-    if len(t) < 2:
+    if len(t) < 4:
         return False
-    if re.search(r"(查一下|搜一下|搜索|网上|新闻|今天|天气|股价|最新|谁|什么|怎么办|多少钱|几点)", t):
+    if re.search(
+        r"(搜一下|搜索|帮我搜|查一下|网上查查?|去网上|浏览器|谷歌|必应|百度一下"
+        r"|新闻|维基|百科|股价|股指|涨停|天气预报|气温|台风|地震"
+        r"|汇率|美元兑|实时数据|排名榜|赛程|比分|奥运会)",
+        t,
+    ):
         return True
-    if len(t) >= 10 and re.search(r"[？?]$", t):
+    if re.search(r"(今天|现在|今年).{0,6}(几号|星期几|农历|天气)", t):
         return True
     return False

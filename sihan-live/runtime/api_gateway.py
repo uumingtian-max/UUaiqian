@@ -26,6 +26,7 @@ _OWNER_ID = os.environ.get("SIHAN_OWNER_ID", "nac")
 _API_KEY = os.environ.get("SIHAN_API_KEY", "local-dev-key")
 _KB_PATH = Path(os.environ.get("SIHAN_KB_PATH", _COMPANION_DIR / "knowledge_store.json"))
 _KB_IMPORT = Path(os.environ.get("SIHAN_KB_IMPORT", _COMPANION_DIR / "kb_import"))
+_WEB_BY_DEFAULT = os.environ.get("SIHAN_WEB_SEARCH", "1") not in ("0", "false", "no")
 
 PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。和阿权像微信/电话那样自然聊天。
 说话像真人：句子长短不一，可以有嗯…、好啦、别闹；少用分点列表、套话。
@@ -130,7 +131,7 @@ async def chat_completions(req: Request):
         kb,
         _OWNER_ID,
         user_line,
-        web_enabled=True,
+        web_enabled=_WEB_BY_DEFAULT,
     )
     if ctx:
         comp_msg = {"role": "system", "content": "【伴读上下文】\n" + ctx}
