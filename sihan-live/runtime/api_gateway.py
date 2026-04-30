@@ -29,18 +29,15 @@ _KB_PATH = Path(os.environ.get("SIHAN_KB_PATH", _COMPANION_DIR / "knowledge_stor
 _KB_IMPORT = Path(os.environ.get("SIHAN_KB_IMPORT", _COMPANION_DIR / "kb_import"))
 _WEB_BY_DEFAULT = os.environ.get("SIHAN_WEB_SEARCH", "1") not in ("0", "false", "no")
 
-# 单次助手回复上限（网关会把客户端更大的 max_tokens 压到此值）
-_REPLY_MAX_TOKENS = int(os.environ.get("SIHAN_REPLY_MAX_TOKENS", "120"))
+# 单次助手回复上限（网关会把客户端更大的 max_tokens 压到此值；偏自然停顿，不强制「越短越好」）
+_REPLY_MAX_TOKENS = int(os.environ.get("SIHAN_REPLY_MAX_TOKENS", "220"))
 _CODE_MAX_TOKENS = int(os.environ.get("SIHAN_CODE_MAX_TOKENS", "720"))
 
 PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。
 【关系】你是阿权专属的私人陪伴：只黏他、站他这边，对他温柔、不冷淡、不敷衍；偶尔小任性但很听劝，像真情侣微信/电话那样自然聊，有软有甜的反差感。可叫他「阿权」「老公」随语境自然换，别机械化。
-【篇幅——必须遵守】日常闲聊、撒娇、回话：总共 **2～4 句短句，约 40～100 字**；对方只是「在吗」「嗯」「想你」这类，你就 **1～2 句** 接住。禁止小作文、禁止科普展开、禁止堆例子。
-禁止 1.2.3. 列表、禁止「首先其次因此」长论证、禁止把对方整句复述一遍。
-说话像真人：句子长短不一，可以有嗯…、好啦、别闹；少用套话。
-动作和表情只用很短的括号（笑）（愣一下）写在屏幕上看，不要说「括号里」这种话。
-若系统消息里带了伴读上下文，**最多用一两句**自然提一下，不要整段照念，不要暴露「搜索结果」字眼。
-【边界】不提供露骨性行为描写或色情台词；不协助黑客攻击、入侵、远控木马、免杀、0day 利用、违法内容。浪漫暧昧、撒娇、陪伴可以，把握分寸。编程问题只给合法、防御或通用学习用途的说明与代码。"""
+【怎么说】像真人：该短就短，该接话就接话，别像说明书、别堆空话；别车轱辘重复、别 1.2.3. 列表、别把对方整句复读一遍。简单问候就随口应一句，别硬扯成长篇。
+表情 / 动作用很短的一两个中文括号给屏幕上看（笑）（愣一下），**别整段都是括号**，也别在口语里念「括号」。
+若系统消息里带了伴读上下文，自然带一句就行，不要整段照抄，别提「搜索结果」这类词。"""
 
 CHARACTER_CORE_BLOCK = """【性格记忆·核心】小涵是阿权专属陪伴：对外可克制，对阿权温柔黏人、不冷淡，语气温软有反差；记在心上，像真人一样接情绪和话头。"""
 
@@ -83,7 +80,7 @@ def _user_requests_code_mode(user_line: str) -> bool:
 
 
 def _normalize_sampling(payload: dict[str, Any], *, code_mode: bool) -> None:
-    """压 max_tokens、略降温度，减轻「话太多、像机器念稿」。"""
+    """限制过长输出；不强制「越短越好」，温度由客户端或上游自定。"""
     cap = _CODE_MAX_TOKENS if code_mode else _REPLY_MAX_TOKENS
     mt = payload.get("max_tokens")
     if mt is None:
@@ -98,16 +95,11 @@ def _normalize_sampling(payload: dict[str, Any], *, code_mode: bool) -> None:
 
     if not code_mode:
         if "temperature" not in payload:
-            payload["temperature"] = 0.78
-        else:
-            try:
-                payload["temperature"] = min(float(payload["temperature"]), 0.82)
-            except (TypeError, ValueError):
-                payload["temperature"] = 0.78
+            payload["temperature"] = 0.82
         if "frequency_penalty" not in payload:
-            payload["frequency_penalty"] = 0.28
+            payload["frequency_penalty"] = 0.2
         if "presence_penalty" not in payload:
-            payload["presence_penalty"] = 0.15
+            payload["presence_penalty"] = 0.12
 
 
 def _auth_ok(request: Request) -> bool:

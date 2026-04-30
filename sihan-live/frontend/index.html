@@ -18,16 +18,16 @@
     #appRoot{position:fixed;inset:0;display:flex;flex-direction:row;}
     .stage{flex:1;position:relative;min-width:0;background:#05050f center/cover no-repeat;overflow:hidden}
     body.code-mode .stage{flex:0 0 30%;min-width:0;max-width:none;border-right:1px solid rgba(140,170,230,.35)}
-    /* 3D 真人层（WebGL 透明叠加）—— 与下方 2D 备用图二选一显示 */
-    #avatarSceneRoot{position:absolute;inset:0;z-index:2;pointer-events:auto}
+    /* 3D 层在上；3D 开启时保留淡淡 2D 底图（不撤掉立绘） */
+    #avatarSceneRoot{position:absolute;inset:0;z-index:3;pointer-events:auto}
     #avatar3d-canvas-wrap{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .45s ease}
     body.avatar-3d #avatar3d-canvas-wrap{opacity:1;pointer-events:auto}
-    #avatar3d-canvas-wrap canvas{display:block;width:100%;height:100%}
+    #avatar3d-canvas-wrap canvas{display:block;width:100%;height:100%;touch-action:none}
     .mask{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,35,.5),rgba(10,5,25,.88));z-index:1;pointer-events:none}
     body.avatar-3d .mask{background:linear-gradient(180deg,rgba(8,8,16,.25),rgba(5,5,12,.75))}
-    /* 2D 立绘备用（3D 关闭时显示） */
-    .character-stack{position:absolute;inset:0;pointer-events:none;z-index:3}
-    body.avatar-3d .character-stack{opacity:0;pointer-events:none}
+    /* 2D 立绘：默认整页；3D 时半透明垫在模型后 */
+    .character-stack{position:absolute;inset:0;pointer-events:none;z-index:2;transition:opacity .45s ease}
+    body.avatar-3d .character-stack{opacity:0.22}
     .char-base{position:absolute;inset:0;background:inherit;background-size:cover;background-position:center;filter:saturate(1.05) contrast(1.02);transform:scale(1.02);transition:filter .35s ease, transform .6s ease}
     .char-mood{position:absolute;inset:0;mix-blend-mode:soft-light;opacity:0;transition:opacity .35s ease, transform .5s ease;background:radial-gradient(ellipse 70% 55% at 50% 38%,rgba(255,160,200,.42),transparent 62%)}
     .char-mood.active{opacity:1}
@@ -70,12 +70,12 @@
   <div id="appRoot">
   <div class="stage">
     <div class="mask"></div>
-    <div id="avatarSceneRoot">
-      <div id="avatar3d-canvas-wrap" aria-label="三维角色"></div>
-    </div>
     <div class="character-stack" aria-hidden="true">
       <div class="char-base char-breathe" id="charBase"></div>
       <div class="char-mood" id="charMood"></div>
+    </div>
+    <div id="avatarSceneRoot">
+      <div id="avatar3d-canvas-wrap" aria-label="三维角色（单指拖动摇环视）"></div>
     </div>
 
     <div class="topbar">
@@ -84,7 +84,7 @@
       <div class="chip">61930 / 61931</div>
     </div>
 
-    <div id="reply" class="reply">我在呢……说「3D小人」切换三维角色（Three.js）。说「2D背景」换回图片。</div>
+    <div id="reply" class="reply">我在呢……说「3D小人」可叠在立绘上看三维（单指拖动旋转）。说「2D背景」只看大图。</div>
 
     <div class="panel">
       <div class="row">
@@ -177,7 +177,7 @@ async function setUseAvatar3D(on) {
 /** 从用户话里驱动 3D：换装 / 动作 / morph（需模型支持） */
 function applyAvatarCommandsFromUser(text) {
   const t = text || '';
-  const VA = window.VirtualAvatar;
+  const VA = window.virtualAvatar;
   if (!useAvatar3D || !VA) return;
 
   /** 换装 3=全套 2=无外衣 1=仅身体 0=裸体（与 avatar3d.js 一致 */
@@ -277,8 +277,8 @@ function attachAudioMoodSync(audio) {
     moodAnim = requestAnimationFrame(tick);
   }
   function onPlay3d() {
-    if (useAvatar3D && window.VirtualAvatar) {
-      try { window.VirtualAvatar.playPose('talking'); } catch (e) {}
+    if (useAvatar3D && window.virtualAvatar) {
+      try { window.virtualAvatar.playPose('talking'); } catch (e) {}
     }
     startTick();
   }
@@ -287,15 +287,15 @@ function attachAudioMoodSync(audio) {
   audio.addEventListener('ended', () => {
     clearSpeakingSync();
     setMoodFromAssistantText(lastReplyRaw);
-    if (useAvatar3D && window.VirtualAvatar) {
-      try { window.VirtualAvatar.playPose('idle'); } catch (e) {}
+    if (useAvatar3D && window.virtualAvatar) {
+      try { window.virtualAvatar.playPose('idle'); } catch (e) {}
     }
   });
   audio.addEventListener('pause', () => {
     if (audio.duration && audio.currentTime >= audio.duration - 0.05) return;
     document.body.classList.remove('speaking');
-    if (useAvatar3D && window.VirtualAvatar) {
-      try { window.VirtualAvatar.playPose('idle'); } catch (e) {}
+    if (useAvatar3D && window.virtualAvatar) {
+      try { window.virtualAvatar.playPose('idle'); } catch (e) {}
     }
   });
 }
@@ -332,15 +332,14 @@ function applyCommandsFromUser(text) {
 function buildSystemPrompt() {
   const base = `你是赵思涵（小涵），23岁。你是阿权专属的私人陪伴：只黏他、对他温柔、不冷淡、不敷衍，偶尔小任性但很听劝，说话有软有甜的反差感；像日常微信/电话那样聊，别像说明书。可叫他「阿权」或「老公」，自然换，别机械化。
 
-【篇幅——必须遵守】日常闲聊：总共 2～4 句短句（约 40～100 字）。对方只说「在吗」「嗯」「想你」之类，你就 1～2 句接住。禁止小作文、禁止展开科普、禁止车轱辘重复。
-说话像真人：句子长短不一，可以嗯…、诶、好啦、别闹；禁止 1.2.3. 分点、小标题、套话、把对方整句复读一遍。
-表情动作用短括号（笑）（愣一下）给屏幕看，别整段括号。不提供露骨色情描写；不协助黑客攻击、入侵或违法内容。编程求助只给合法学习/防御向、可公开的技术与代码。
-对方发图：先一句随口反应，再一句说看到啥，别写成观后感。`;
+说话像真人：该短就短，该多说两句就多说两句，但别啰嗦堆套话、别车轱辘；别 1.2.3. 分点、别把对方整句复读一遍。
+表情 / 动作用很短的中文括号给屏幕上看（笑）（愣一下），别整段都是括号。
+对方发图：先随口一句，再具体说看到啥。`;
 
   if (layoutMode === 'code') {
     return base + `
 
-【当前：代码/部署陪伴模式】阿权不太会看代码。先 2～4 句口语讲清「要点哪里、别点哪里」；技术细节压缩在简短段落里，别长篇说教。
+【当前：代码/部署陪伴模式】阿权不太会看代码。先用口语讲清「要点哪里、哪个先别动」；需要时再补一点技术细节，别写成长篇文档。
 若合适，用单独一段 \`\`\`html  包一小段可预览的静态页面示例（少用脚本，最好不要 script），方便他在右边预览框里看见样子。HTML 里加简短注释标「可点」「先别点」。`;
   }
   return base;
@@ -541,11 +540,11 @@ async function sendInteraction(e) {
       body: JSON.stringify({
         model: MODEL,
         messages,
-        max_tokens: layoutMode === 'code' ? 720 : 140,
-        temperature: layoutMode === 'code' ? 0.85 : 0.76,
-        top_p: 0.88,
+        max_tokens: layoutMode === 'code' ? 720 : 260,
+        temperature: layoutMode === 'code' ? 0.82 : 0.82,
+        top_p: 0.9,
         presence_penalty: layoutMode === 'code' ? 0.35 : 0.12,
-        frequency_penalty: layoutMode === 'code' ? 0.28 : 0.22,
+        frequency_penalty: layoutMode === 'code' ? 0.28 : 0.18,
         chat_template_kwargs: { enable_thinking: false },
       }),
     });

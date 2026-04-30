@@ -600,6 +600,15 @@ function initThreeBasics() {
   state.controls.minDistance = 1.2;
   state.controls.maxDistance = 8;
   state.controls.maxPolarAngle = Math.PI * 0.49;
+  state.controls.minAzimuthAngle = -Infinity;
+  state.controls.maxAzimuthAngle = Infinity;
+  // 手机单指旋转：ONE 用 ROTATE；桌面仍为一键旋转 + 右键平移 + 滚轮远近
+  if (state.controls.touches) {
+    state.controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
+  }
 
   const hemi = new THREE.HemisphereLight(0x9078c8, 0x1a1a24, 0.38);
   state.scene.add(hemi);
