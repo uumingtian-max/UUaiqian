@@ -40,7 +40,7 @@ function resolveHdrUrl() {
     const ls = localStorage.getItem('sihan_hdr_url');
     if (ls && ls.trim()) return ls.trim();
   } catch (e) { /* ignore */ }
-  return 'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr';
+  return 'https://threejs.org/examples/textures/equirectangular/venice_sunset_1k.hdr';
 }
 
 const CONFIG = {
