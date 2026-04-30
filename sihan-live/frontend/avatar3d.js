@@ -30,11 +30,22 @@ function resolveModelUrl() {
   return 'https://threejs.org/examples/models/gltf/Xbot.glb';
 }
 
-/** 豪华套房 / 大庄园：默认 HDR + 可用 ?scene= 或 localStorage sihan_scene_preset 切换 */
-const HDR_SUITE =
+/** 生活场景 HDR：豪华套房 vs 庄园露台（Poly Haven，可运行时按聊天切换） */
+export const HDR_SUITE =
   'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hotel_room_1k.hdr';
-const HDR_MANOR =
+export const HDR_MANOR =
   'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/veranda_1k.hdr';
+
+function hdrLockedByUser() {
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.get('hdr')?.trim()) return true;
+  } catch (e) { /* ignore */ }
+  try {
+    if (localStorage.getItem('sihan_hdr_url')?.trim()) return true;
+  } catch (e) { /* ignore */ }
+  return false;
+}
 
 function resolveHdrUrl() {
   try {
@@ -53,6 +64,29 @@ function resolveHdrUrl() {
     if (/^(hotel|suite|套房|酒店)$/.test(preset)) return HDR_SUITE;
   } catch (e) { /* ignore */ }
   return HDR_SUITE;
+}
+
+/**
+ * 从聊天记录推断生活场景（套房 / 庄园）。无强制判定时返回 null。
+ * @param {string[]} texts
+ * @returns {'suite' | 'manor' | null}
+ */
+export function inferLifeSceneFromText(...texts) {
+  const s = texts.filter(Boolean).join('\n');
+  if (!s.trim()) return null;
+  let suite = 0;
+  let manor = 0;
+  const hotelRe =
+    /酒店|宾馆|旅馆|客房|套房|总统套|行政套|行政酒廊|星级|六星|五星|豪华套|大堂|前厅|lobby|浴缸|迷你吧|客房服务|room\s*service|check\s*-?\s*in|入住|电梯厅|宴会厅/i;
+  const manorRe =
+    /庄园|大宅|豪宅|别墅|洋房|城堡|花园|草坪|庭院|露台|阳台|葡萄园|酒庄|乡下|郊外|湖边|山景|喷泉|林茵|栈道/i;
+  if (hotelRe.test(s)) suite += 3;
+  if (manorRe.test(s)) manor += 3;
+  if (/\b(hotel|suite|penthouse)\b/i.test(s)) suite += 1;
+  if (/\b(manor|estate|villa|chateau|garden)\b/i.test(s)) manor += 1;
+  if (manor > suite) return 'manor';
+  if (suite > manor) return 'suite';
+  return null;
 }
 
 const CONFIG = {
@@ -143,6 +177,8 @@ const state = {
   rimLight: null,
   fillLight: null,
   currentClothingLevel: CLOTHING_LEVEL.FULL,
+  /** 当前生活场景 preset，用于避免重复加载 */
+  lifeScenePreset: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -646,15 +682,30 @@ function initThreeBasics() {
   state.scene.add(ground);
 }
 
-async function loadEnvironmentHdr() {
-  const pmrem = new THREE.PMREMGenerator(state.renderer);
-  pmrem.compileEquirectangularShader();
+function syncLifeScenePresetFromHdrUrl(url) {
+  if (url === HDR_SUITE) state.lifeScenePreset = 'suite';
+  else if (url === HDR_MANOR) state.lifeScenePreset = 'manor';
+  else state.lifeScenePreset = null;
+}
+
+/**
+ * 加载 HDR 为环境 + 可见背景；会dispose上一张 env，避免显存泄漏。
+ * @param {string} url
+ */
+export async function loadHdrUrl(url) {
+  if (!state.renderer || !state.scene || !url) return false;
   return new Promise((resolve) => {
+    const pmrem = new THREE.PMREMGenerator(state.renderer);
+    pmrem.compileEquirectangularShader();
     new RGBELoader().load(
-      CONFIG.hdrUrl,
+      url,
       (tex) => {
         tex.mapping = THREE.EquirectangularReflectionMapping;
         const env = pmrem.fromEquirectangular(tex).texture;
+        const prev = state.scene.environment;
+        if (prev && prev !== env && typeof prev.dispose === 'function') {
+          prev.dispose();
+        }
         state.scene.environment = env;
         state.scene.background = env;
         tex.dispose();
@@ -668,6 +719,13 @@ async function loadEnvironmentHdr() {
       }
     );
   });
+}
+
+async function loadEnvironmentHdr() {
+  const url = resolveHdrUrl();
+  const ok = await loadHdrUrl(url);
+  if (ok) syncLifeScenePresetFromHdrUrl(url);
+  return ok;
 }
 
 async function loadCharacter() {
@@ -831,16 +889,42 @@ export function stopSihanAvatar3D() {
   });
 }
 
+/**
+ * 按聊天内容自动换「生活场景」HDR（套房/庄园）。用户用 ?hdr= 或 localStorage sihan_hdr_url 锁定时不覆盖。
+ * @param {string} userText
+ * @param {string} [assistantText]
+ */
+export async function applyLifeSceneFromConversation(userText, assistantText = '') {
+  if (hdrLockedByUser()) return;
+  if (!state.renderer) return;
+  const inferred = inferLifeSceneFromText(userText, assistantText);
+  if (!inferred) return;
+  const nextUrl = inferred === 'manor' ? HDR_MANOR : HDR_SUITE;
+  if (state.lifeScenePreset === inferred) return;
+  const ok = await loadHdrUrl(nextUrl);
+  if (ok) {
+    state.lifeScenePreset = inferred;
+    try {
+      localStorage.setItem('sihan_scene_preset', inferred === 'manor' ? 'manor' : 'suite');
+    } catch (e) { /* ignore */ }
+  }
+}
+
 const virtualAvatarApi = {
   changeClothes,
   playPose,
   setExpression,
   startLoop,
   stopLoop,
+  applyLifeSceneFromConversation,
 };
 
 export const VirtualAvatar = {
   ...virtualAvatarApi,
+  loadHdrUrl,
+  inferLifeSceneFromText,
+  HDR_SUITE,
+  HDR_MANOR,
   get CONFIG() {
     return CONFIG;
   },

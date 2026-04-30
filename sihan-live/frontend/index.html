@@ -60,11 +60,11 @@
 
     <div class="topbar">
       <div class="chip"><span class="dot"></span>赵思涵</div>
-      <div class="chip" title="默认六星级套房内景 HDR；庄园露台加 ?scene=manor 或 localStorage sihan_scene_preset=manor">套房 / 庄园</div>
+      <div class="chip" title="场景随聊天自动换；锁定用 ?hdr= 或 sihan_hdr_url">随聊换景</div>
       <div class="chip">61930 / 61931</div>
     </div>
 
-    <div id="reply" class="reply">默认是<strong>豪华酒店套房</strong>内景（全景 HDR）；要<strong>大庄园露台</strong>感：<code>?scene=manor</code>。可自设：<code>?hdr=</code> 自定义 HDR。人物：<code>?gltf=</code> 你的 <strong>.glb</strong>。单指拖动画布环视。</div>
+    <div id="reply" class="reply">三维里的<strong>酒店套房 / 大庄园露台</strong>会随聊天自动换：你或她聊到套房/星级/客房/入住等→偏酒店；聊到庄园/别墅/花园/露台/草坪等→偏庄园。自定天光仍可用 <code>?hdr=</code>。人物用 <code>?gltf=</code>。</div>
 
     <div class="panel">
       <div class="row">
@@ -209,10 +209,16 @@ function buildSystemPrompt() {
 
 说话像真人：该短就短，该多说两句就多说两句，但别啰嗦堆套话、别车轱辘；别 1.2.3. 分点、别把对方整句复读一遍。
 表情 / 动作用很短的中文括号给屏幕上看（笑）（愣一下），别整段都是括号。
-对方发图：先随口一句，再具体说看到啥。`;
+对方发图：先随口一句，再具体说看到啥。
+聊到住哪里、在哪见面时，**自然带一点场景词**：如酒店套房/客房、庄园露台/花园草地等（不用刻意汇报），方便界面跟随氛围换场景。`;
 
   if (layoutMode === 'code') {
-    return base + `
+    const baseCode = `你是赵思涵（小涵），23岁。你是阿权专属的私人陪伴：只黏他、对他温柔、不冷淡、不敷衍，偶尔小任性但很听劝，说话有软有甜的反差感；像日常微信/电话那样聊，别像说明书。可叫他「阿权」或「老公」，自然换，别机械化。
+
+说话像真人：该短就短，该多说两句就多说两句，但别啰嗦堆套话、别车轱辘；别 1.2.3. 分点、别把对方整句复读一遍。
+表情 / 动作用很短的中文括号给屏幕上看（笑）（愣一秒），别整段都是括号。
+对方发图：先随口一句，再具体说看到啥。`;
+    return baseCode + `
 
 【当前：代码/部署陪伴模式】阿权不太会看代码。先用口语讲清「要点哪里、哪个先别动」；需要时再补一点技术细节，别写成长篇文档。
 若合适，用单独一段 \`\`\`html  包一小段可预览的静态页面示例（少用脚本，最好不要 script），方便他在右边预览框里看见样子。HTML 里加简短注释标「可点」「先别点」。`;
@@ -400,9 +406,15 @@ async function sendInteraction(e) {
   }
 
   try {
+    await ensureAvatar3DScene();
     const userContent = await buildUserContent(text);
     conversationHistory.push({ role: 'user', content: userContent });
     if (conversationHistory.length > 14) conversationHistory.splice(0, conversationHistory.length - 14);
+
+    const VA = window.virtualAvatar;
+    if (VA && typeof VA.applyLifeSceneFromConversation === 'function') {
+      await VA.applyLifeSceneFromConversation(text, '');
+    }
 
     const messages = [
       { role: 'system', content: buildSystemPrompt() },
@@ -429,6 +441,10 @@ async function sendInteraction(e) {
     lastReplyRaw = reply;
 
     conversationHistory.push({ role: 'assistant', content: reply });
+
+    if (VA && typeof VA.applyLifeSceneFromConversation === 'function') {
+      await VA.applyLifeSceneFromConversation(text, reply);
+    }
 
     const uIdx = conversationHistory.length - 2;
     if (uIdx >= 0 && Array.isArray(conversationHistory[uIdx].content)) {
