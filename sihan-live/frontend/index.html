@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>赵思涵（小涵）</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;background:#0a0d12;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;color:#fff;overflow:hidden}
+    #appRoot{position:fixed;inset:0;display:flex;flex-direction:row;}
+    .stage{flex:1;position:relative;min-width:0;background:#05050f url('https://i.imgur.com/8vK9L2P.jpeg') center/cover no-repeat;overflow:hidden}
+    body.code-mode .stage{flex:0 0 30%;min-width:0;max-width:none;border-right:1px solid rgba(140,170,230,.35)}
+    .mask{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,35,.65),rgba(10,5,25,.92))}
+    .topbar{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;z-index:10;gap:8px;flex-wrap:wrap}
+    .chip{background:rgba(0,0,0,.6);border:1px solid rgba(180,200,255,.4);border-radius:999px;padding:6px 12px;font-size:12px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+    .dot{display:inline-block;width:8px;height:8px;border-radius:999px;background:#4cff97;box-shadow:0 0 12px #4cff97;margin-right:5px;vertical-align:middle}
+    .reply{position:absolute;left:12px;right:12px;bottom:150px;z-index:8;background:rgba(15,22,38,.88);backdrop-filter:blur(16px);border:1px solid rgba(180,210,255,.45);border-radius:16px;padding:14px 16px;line-height:1.6;font-size:15px;max-height:42vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+    body.code-mode .reply{bottom:140px;max-height:38vh;font-size:14px}
+    .panel{position:absolute;left:12px;right:12px;bottom:12px;z-index:9;background:rgba(8,14,24,.85);backdrop-filter:blur(14px);border:1px solid rgba(140,170,230,.4);border-radius:14px;padding:10px 12px;box-shadow:0 6px 24px rgba(0,0,0,.7)}
+    .row{display:flex;gap:8px;align-items:center}
+    .txt{flex:1;height:48px;border:1px solid rgba(180,200,255,0.4);background:rgba(15,22,38,0.95);color:#fff;border-radius:12px;padding:0 14px;font-size:15px}
+    .send{height:48px;min-width:104px;border:0;border-radius:12px;background:linear-gradient(180deg,#ff4fa8,#d9166a);color:#fff;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 3px 14px rgba(255,47,146,.45), inset 0 1px 0 rgba(255,255,255,.25)}
+    .send:disabled{opacity:0.55;cursor:not-allowed;box-shadow:none}
+    .sub{margin-top:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px}
+    .uploadBtn{display:inline-flex;align-items:center;justify-content:center;height:38px;padding:0 14px;border:2px solid rgba(200,220,255,.75);border-radius:10px;background:rgba(40,55,95,.95);cursor:pointer;font-size:13px;font-weight:500;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+    .uploadBtn:active{transform:scale(.98)}
+    #fileName{font-size:12px;color:#c8daf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
+    #mediaFile{display:none}
+    #audioPlayer{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+    /* 右侧：代码陪伴区 — 更清晰、更协调 */
+    #studioColumn{display:none;flex:0 0 70%;min-width:0;flex-direction:column;background:#161b22;color:#e6edf3;z-index:5;border-left:1px solid #30363d}
+    body.code-mode #studioColumn{display:flex}
+    .studio-head{flex:0 0 auto;padding:12px 16px;background:#21262d;border-bottom:1px solid #30363d;font-size:14px;font-weight:650;color:#f0f6fc;letter-spacing:.02em}
+    .studio-hint{flex:0 0 auto;padding:10px 16px;background:#1c2128;font-size:13px;color:#b1bac4;line-height:1.55;border-bottom:1px solid #30363d}
+    #previewFrame{flex:1;min-height:160px;width:100%;border:0;background:#f6f8fa; box-sizing:border-box; outline:3px solid #30363d; outline-offset:-3px}
+    #studioPlain{flex:0 0 38%;min-height:120px;max-height:42vh;overflow:auto;padding:14px 16px;font-size:14px;line-height:1.7;background:#0d1117;border-top:2px solid #30363d;white-space:pre-wrap;color:#c9d1d9}
+    .voice-pill{display:none}
+  </style>
+</head>
+<body>
+  <div id="appRoot">
+  <div class="stage">
+    <div class="mask"></div>
+
+    <div class="topbar">
+      <div class="chip"><span class="dot"></span>赵思涵</div>
+      <div class="chip">61930 / 61931</div>
+    </div>
+
+    <div id="reply" class="reply">我在呢……想打字就说，想听我声音可以说「用语音跟我聊」。要做页面再说「代码模式」。</div>
+
+    <div class="panel">
+      <div class="row">
+        <input id="userText" class="txt" placeholder="想说什么……（说「代码模式」可横屏）" autocomplete="off" />
+        <button id="sendBtn" class="send" onclick="sendInteraction(event)">发送</button>
+      </div>
+      <div class="sub">
+        <button type="button" class="uploadBtn" onclick="pickMedia()">📎 图片</button>
+        <div id="fileName">未选择</div>
+      </div>
+    </div>
+
+    <input id="mediaFile" type="file" accept="image/*" />
+    <audio id="audioPlayer" playsinline></audio>
+  </div>
+
+  <aside id="studioColumn" aria-label="代码与预览">
+    <div class="studio-head">右边｜页面预览 · 白话说明（不用懂代码也能对着看）</div>
+    <div class="studio-hint">小涵会尽量用「点哪里、哪个别点」这种说法说明。若她贴了整页 HTML，会尽量在下面框里预览（仅本地示意，复杂网站请用真实地址）。</div>
+    <iframe id="previewFrame" title="预览" sandbox="allow-same-origin"></iframe>
+    <div id="studioPlain"></div>
+  </aside>
+  </div>
+
+<script>
+const API = 'http://175.155.64.171:61930';
+const MODEL = 'Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf';
+const VOICE = 'zh-CN-XiaoxiaoNeural';
+
+const LS_INTERACTION = 'sihan_interaction_mode';
+const LS_LAYOUT = 'sihan_layout_mode';
+
+let pendingMedia = null;
+let lastAudioUrl = null;
+let sending = false;
+let conversationHistory = [];
+
+/** text = 小涵回复也显示在气泡里；voice = 只播语音，不显示她的正文（仍可向模型要内容用于 TTS） */
+let interactionMode = localStorage.getItem(LS_INTERACTION) || 'text';
+/** normal | code */
+let layoutMode = localStorage.getItem(LS_LAYOUT) || 'normal';
+
+function setReply(html) {
+  document.getElementById('reply').innerHTML = html;
+}
+
+function applyLayout() {
+  document.body.classList.toggle('code-mode', layoutMode === 'code');
+}
+
+/** 从用户话里切换模式（不必整句只有命令） */
+function applyCommandsFromUser(text) {
+  const t = text || '';
+  if (/用语音跟我|语音跟我|语音互动|你语音|听说\s*就行|只听声音/.test(t)) {
+    interactionMode = 'voice';
+    localStorage.setItem(LS_INTERACTION, 'voice');
+  }
+  if (/文字互动|打字聊|要文字|显示文字|别语音|不要语音/.test(t)) {
+    interactionMode = 'text';
+    localStorage.setItem(LS_INTERACTION, 'text');
+  }
+  if (/代码模式|写代码|部署网站|开发模式|横屏/.test(t)) {
+    layoutMode = 'code';
+    localStorage.setItem(LS_LAYOUT, 'code');
+  }
+  if (/退出代码|关闭代码|正常界面|竖屏聊|聊天模式/.test(t)) {
+    layoutMode = 'normal';
+    localStorage.setItem(LS_LAYOUT, 'normal');
+  }
+  applyLayout();
+}
+
+function buildSystemPrompt() {
+  const base = `你是赵思涵（小涵），23岁。和阿权像日常微信/电话那样聊天，别像说明书。
+
+说话像真人：句子长短不一，可以嗯…、诶、好啦、别闹；禁止 1.2.3. 分点、小标题、套话、把对方整句复读一遍。
+表情动作用短括号（笑）（愣一下）给屏幕看，别整段括号。
+对方发图：先随口反应，再具体说看到啥。`;
+
+  if (layoutMode === 'code') {
+    return base + `
+
+【当前：代码/部署陪伴模式】阿权不太会看代码。你要用大白话讲：界面上大概长什么样、要点哪里、哪些按钮先别乱点、可能会报错时怎么规避。
+若合适，用单独一段 \`\`\`html  包一小段可预览的静态页面示例（少用脚本，最好不要 script），方便他在右边预览框里看见样子。HTML 里加简短注释标「可点」「先别点」。
+仍保持口语，别写成技术文档。`;
+  }
+  return base;
+}
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
+
+function downscaleDataUrl(dataUrl, maxSide = 1024, quality = 0.82) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h || (w <= maxSide && h <= maxSide)) return resolve(dataUrl);
+      if (w > h) { h = Math.round((h * maxSide) / w); w = maxSide; }
+      else { w = Math.round((w * maxSide) / h); h = maxSide; }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      try { resolve(c.toDataURL('image/jpeg', quality)); } catch (e) { resolve(dataUrl); }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+async function buildUserContent(text) {
+  const raw = (text || '').trim();
+  if (!pendingMedia) return raw || '（无文字）';
+  let dataUrl = await fileToDataURL(pendingMedia);
+  dataUrl = await downscaleDataUrl(dataUrl, 1024, 0.82);
+  pendingMedia = null;
+  document.getElementById('fileName').textContent = '未选择';
+  try { document.getElementById('mediaFile').value = ''; } catch (e) {}
+  const userText = raw || '请看看这张图，用自然口吻说说你看到了什么。';
+  return [{ type: 'text', text: userText }, { type: 'image_url', image_url: { url: dataUrl } }];
+}
+
+function stripStageDirectionsForTTS(text) {
+  if (!text) return '';
+  let s = text.replace(/（[^）]*）/g, '');
+  s = s.replace(/\[[^\]]*\]/g, '');
+  s = s.replace(/【[^】]*】/g, '');
+  s = s.replace(/\([^)]{0,80}\)/g, '');
+  s = s.replace(/\n+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return s || text;
+}
+
+function humanizeText(text) {
+  let t = (text || '').trim();
+  if (t.length > 18 && !/[，。！？；、…]/.test(t)) t = t.replace(/(.{12})/g, '$1，');
+  t = t.replace(/([，、；])/g, '$1 ');
+  t = t.replace(/([。！？])/g, '$1  ');
+  return t;
+}
+
+function computeProsody(reply) {
+  const len = (reply || '').length;
+  const hasEmotion = /爱|想|抱|心疼|害羞|喜欢|难过|开心|嗯|哈|嘻|哼/.test(reply);
+  let rate = 0, pitch = 0, volume = 0;
+  if (len < 15) rate = 10; else if (len > 70) rate = -10; else if (len > 36) rate = -3;
+  if (/[，、；]/.test(reply)) rate -= 4;
+  if (/[！？]/.test(reply)) { pitch += 5; volume += 3; }
+  if (hasEmotion) { rate -= 5; pitch += 2; volume += 4; }
+  rate += (Math.random() * 4 - 2) | 0;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  return {
+    rate: `${rate >= 0 ? '+' : ''}${clamp(rate, -20, 16)}%`,
+    pitch: `${(pitch >= 0 ? '+' : '') + clamp(pitch, -6, 10)}Hz`,
+    volume: `${(volume >= 0 ? '+' : '') + clamp(volume, -6, 8)}%`,
+  };
+}
+
+function stripHtmlForPreview(raw) {
+  if (!raw) return '';
+  return raw
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+}
+
+function extractHtmlBlock(text) {
+  const m = text.match(/```html\s*([\s\S]*?)```/i);
+  return m ? m[1].trim() : '';
+}
+
+function renderStudio(reply) {
+  const plainEl = document.getElementById('studioPlain');
+  const frame = document.getElementById('previewFrame');
+  if (layoutMode !== 'code') {
+    plainEl.textContent = '';
+    try { frame.srcdoc = ''; } catch (e) {}
+    return;
+  }
+  const html = extractHtmlBlock(reply);
+  const rest = html ? reply.replace(/```html\s*[\s\S]*?```/i, '').trim() : reply;
+  plainEl.textContent = rest || '（这里没有额外说明）';
+  if (html) {
+    try {
+      frame.srcdoc = stripHtmlForPreview(html);
+    } catch (e) {
+      frame.srcdoc = '<p style="padding:12px;color:#333">预览加载失败，请看下方文字。</p>';
+    }
+  } else {
+    frame.srcdoc = '<p style="padding:16px;font-family:sans-serif;color:#555">这次没有带可预览的小页面，你先看左边她的说明；需要预览时让她「给一段 html 放进代码块」。</p>';
+  }
+}
+
+async function playBlob(blob) {
+  const audio = document.getElementById('audioPlayer');
+  if (lastAudioUrl) URL.revokeObjectURL(lastAudioUrl);
+  lastAudioUrl = URL.createObjectURL(blob);
+  audio.src = lastAudioUrl;
+  try { await audio.play(); return true; } catch (e) { return false; }
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function sendInteraction(e) {
+  if (e) e.preventDefault();
+  if (sending) return;
+
+  const input = document.getElementById('userText');
+  let text = (input.value || '').trim();
+  if (!text && !pendingMedia) text = '在吗？';
+
+  applyCommandsFromUser(text);
+
+  sending = true;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  const userMsgPreview = pendingMedia ? (text ? `${text}（图）` : '（图）') : text;
+
+  if (interactionMode === 'voice') {
+    setReply(`你：${escapeHtml(userMsgPreview)}`);
+  } else {
+    setReply(`你：${userMsgPreview}<br><br>小涵：嗯…`);
+  }
+
+  try {
+    const userContent = await buildUserContent(text);
+    conversationHistory.push({ role: 'user', content: userContent });
+    if (conversationHistory.length > 14) conversationHistory.splice(0, conversationHistory.length - 14);
+
+    const messages = [
+      { role: 'system', content: buildSystemPrompt() },
+      ...conversationHistory,
+    ];
+
+    const chatRes = await fetch(`${API}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
+        max_tokens: layoutMode === 'code' ? 900 : 280,
+        temperature: 0.92,
+        top_p: 0.9,
+        presence_penalty: 0.4,
+        frequency_penalty: 0.32,
+      }),
+    });
+
+    const data = await chatRes.json();
+    let reply = (data?.choices?.[0]?.message?.content || '喂…我在呢。').trim();
+
+    conversationHistory.push({ role: 'assistant', content: reply });
+
+    const uIdx = conversationHistory.length - 2;
+    if (uIdx >= 0 && Array.isArray(conversationHistory[uIdx].content)) {
+      const parts = conversationHistory[uIdx].content;
+      const t = parts.find((x) => x.type === 'text')?.text || '';
+      conversationHistory[uIdx].content = t
+        ? `${t}（刚发过一张图。）`
+        : '（刚发过一张图。）';
+    }
+
+    renderStudio(reply);
+
+    if (interactionMode === 'voice') {
+      setReply(`你：${escapeHtml(userMsgPreview)}`);
+    } else {
+      const safe = reply.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+      setReply(`你：${userMsgPreview}<br><br><strong>小涵：</strong><br>${safe}`);
+    }
+
+    let ttsIn = humanizeText(stripStageDirectionsForTTS(reply));
+    if (ttsIn.length > 2800) ttsIn = ttsIn.slice(0, 2800);
+    const prosody = computeProsody(reply);
+
+    const ttsRes = await fetch(`${API}/v1/audio/speech`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: ttsIn.slice(0, 2800),
+        voice: VOICE,
+        rate: prosody.rate,
+        pitch: prosody.pitch,
+        volume: prosody.volume,
+      }),
+    });
+
+    if (ttsRes.ok) {
+      const blob = await ttsRes.blob();
+      await playBlob(blob);
+    }
+  } catch (err) {
+    if (interactionMode === 'voice') {
+      setReply(`你：${escapeHtml(userMsgPreview)}`);
+    } else {
+      setReply(`你：${userMsgPreview}<br><br>小涵：这边有点卡，你再发一次嘛…`);
+    }
+  } finally {
+    sending = false;
+    btn.disabled = false;
+    btn.textContent = '发送';
+    input.value = '';
+  }
+}
+
+function pickMedia() {
+  document.getElementById('mediaFile').click();
+}
+
+document.getElementById('mediaFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  pendingMedia = file;
+  document.getElementById('fileName').textContent =
+    file.name.length > 16 ? file.name.slice(0, 14) + '…' : file.name;
+});
+
+document.getElementById('userText').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    sendInteraction(e);
+  }
+});
+
+applyLayout();
+</script>
+</body>
+</html>
