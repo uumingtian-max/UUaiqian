@@ -180,10 +180,11 @@ function applyAvatarCommandsFromUser(text) {
   const VA = window.VirtualAvatar;
   if (!useAvatar3D || !VA) return;
 
-  if (/换全身|衣服0|着装0/.test(t)) VA.changeClothes(0);
-  if (/脱掉外衣|外衣关|衣服1/.test(t)) VA.changeClothes(1);
-  if (/只留身体|仅皮肤|衣服2/.test(t)) VA.changeClothes(2);
-  if (/只穿衣|仅外衣|衣服3/.test(t)) VA.changeClothes(3);
+  /** 换装 3=全套 2=无外衣 1=仅身体 0=裸体（与 avatar3d.js 一致 */
+  if (/全套|衣服3|着装3|换全身/.test(t)) VA.changeClothes(3);
+  if (/脱掉外衣|外衣关|衣服2/.test(t)) VA.changeClothes(2);
+  if (/只留身体|仅身体|内衣也脱|衣服1/.test(t)) VA.changeClothes(1);
+  if (/裸体|衣服0|全脱|着装0/.test(t)) VA.changeClothes(0);
 
   if (/站着就好|待机|idle/.test(t)) VA.playPose('idle');
   if (/在讲话|说话动作|聊天动作|talk/.test(t)) VA.playPose('talking');
