@@ -1,5 +1,7 @@
+# Full stack: backend (sihan-live) + tests. Gateway/TTS use runtime/requirements-runtime.txt (+ edge-tts on server).
 fastapi
 uvicorn
 pyyaml
 httpx
 pytest
+duckduckgo-search>=6.0
