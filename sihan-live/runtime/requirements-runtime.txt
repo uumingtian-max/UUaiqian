@@ -1,5 +1,7 @@
+# sihan-gateway + companion_brain + tts_edge_service (public API path on server)
 fastapi
 uvicorn
 httpx
 pydantic
 duckduckgo-search>=6.0
+edge-tts>=6.0
