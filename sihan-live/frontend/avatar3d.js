@@ -30,17 +30,29 @@ function resolveModelUrl() {
   return 'https://threejs.org/examples/models/gltf/Xbot.glb';
 }
 
+/** 豪华套房 / 大庄园：默认 HDR + 可用 ?scene= 或 localStorage sihan_scene_preset 切换 */
+const HDR_SUITE =
+  'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hotel_room_1k.hdr';
+const HDR_MANOR =
+  'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/veranda_1k.hdr';
+
 function resolveHdrUrl() {
   try {
     const u = new URL(window.location.href);
-    const q = u.searchParams.get('hdr');
-    if (q && q.trim()) return decodeURIComponent(q.trim());
+    const hdr = u.searchParams.get('hdr');
+    if (hdr && hdr.trim()) return decodeURIComponent(hdr.trim());
+    const scene = (u.searchParams.get('scene') || '').trim().toLowerCase();
+    if (/^(manor|estate|veranda|庄园|大宅|露台)$/.test(scene)) return HDR_MANOR;
+    if (/^(hotel|suite|套房|酒店|套房内)$/.test(scene)) return HDR_SUITE;
   } catch (e) { /* ignore */ }
   try {
-    const ls = localStorage.getItem('sihan_hdr_url');
-    if (ls && ls.trim()) return ls.trim();
+    const lsHdr = localStorage.getItem('sihan_hdr_url');
+    if (lsHdr && lsHdr.trim()) return lsHdr.trim();
+    const preset = (localStorage.getItem('sihan_scene_preset') || '').trim().toLowerCase();
+    if (/^(manor|estate|veranda|庄园|大宅)$/.test(preset)) return HDR_MANOR;
+    if (/^(hotel|suite|套房|酒店)$/.test(preset)) return HDR_SUITE;
   } catch (e) { /* ignore */ }
-  return 'https://threejs.org/examples/textures/equirectangular/venice_sunset_1k.hdr';
+  return HDR_SUITE;
 }
 
 const CONFIG = {
@@ -566,7 +578,7 @@ function initThreeBasics() {
   if (!state.container) throw new Error('#avatar3d-canvas-wrap missing');
 
   state.scene = new THREE.Scene();
-  state.scene.background = new THREE.Color(0x12151c);
+  state.scene.background = new THREE.Color(0x1a1816);
 
   const r = state.container.getBoundingClientRect();
   const asp = r.width / Math.max(r.height, 1);
@@ -610,9 +622,9 @@ function initThreeBasics() {
     };
   }
 
-  const hemi = new THREE.HemisphereLight(0x9078c8, 0x1a1a24, 0.38);
+  const hemi = new THREE.HemisphereLight(0xc8b8a8, 0x1a1816, 0.34);
   state.scene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xfff5f0, 0.72);
+  const dir = new THREE.DirectionalLight(0xfff6ed, 0.65);
   dir.position.set(2.2, 5.5, 2.8);
   dir.castShadow = true;
   dir.shadow.mapSize.set(2048, 2048);
@@ -624,9 +636,9 @@ function initThreeBasics() {
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
     new THREE.MeshStandardMaterial({
-      color: 0x1c1e28,
-      roughness: 0.94,
-      metalness: 0.02,
+      color: 0x2f2a26,
+      roughness: 0.91,
+      metalness: 0.04,
     })
   );
   ground.rotation.x = -Math.PI / 2;
