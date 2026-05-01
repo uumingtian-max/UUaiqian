@@ -448,6 +448,8 @@ function stripTechnicalTailForTTS(text) {
   s = s.replace(/```kb\s*[\s\S]*?```/gi, '');
   const cut = s.indexOf('【服务器执行结果】');
   if (cut >= 0) s = s.slice(0, cut);
+  const cutD = s.indexOf('【直链页面摘录】');
+  if (cutD >= 0) s = s.slice(0, cutD);
   const cutKb = s.indexOf('【知识库已自动补充】');
   if (cutKb >= 0) s = s.slice(0, cutKb);
   const cut2 = s.indexOf('【预览控件');

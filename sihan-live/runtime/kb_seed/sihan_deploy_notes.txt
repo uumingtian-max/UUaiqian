@@ -28,3 +28,14 @@ POST /kb/ingest-directory，JSON：{"path":"/home/linux/sihan-final/runtime/comp
 
 ## 搜索
 用户问「怎么安装」「资料」「官网」「报错」等会触发 DuckDuckGo 摘要进入系统上下文。
+
+## 直链抓取（未收录页 / 可选内网）
+当用户消息含 `http://` 或 `https://` 时，网关会用本机发 GET 抓取正文片段（HTML 提纯文本），写入伴读「直链页面摘录」。
+环境变量（写在 sihan-gateway.service 的 Environment=）：
+- `SIHAN_FETCH=1` 开启（默认 1）；`SIHAN_FETCH=0` 关闭。
+- `SIHAN_FETCH_TIMEOUT=14` 单页超时秒。
+- `SIHAN_FETCH_MAX_BYTES=2000000` 单页最大字节。
+- `SIHAN_FETCH_MAX_URLS=5` 每轮最多跟几个链接。
+- `SIHAN_FETCH_ALLOW_PRIVATE=1` 允许访问 RFC1918 内网、localhost（**仅私有服务器且你自担风险时**打开）。
+- `SIHAN_FETCH_COOKIE=...` 浏览器里复制的 Cookie 字符串，用于需登录才有内容的页面（遵守站点条款）。
+- `SIHAN_FETCH_UA=...` 可自定义 User-Agent。

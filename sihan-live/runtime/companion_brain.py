@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
+import html as html_std
+import ipaddress
 import json
 import math
 import re
@@ -11,10 +13,24 @@ import secrets
 import threading
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+import httpx
 
 # 联网搜索在部分网络环境下较慢，避免阻塞整轮对话
 _WEB_SEARCH_TIMEOUT_SEC = float(__import__("os").environ.get("SIHAN_WEB_SEARCH_TIMEOUT", "3.0"))
 _WEB_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="ddg")
+
+_FETCH_ENABLED = __import__("os").environ.get("SIHAN_FETCH", "1") not in ("0", "false", "no")
+_FETCH_TIMEOUT = float(__import__("os").environ.get("SIHAN_FETCH_TIMEOUT", "14"))
+_FETCH_MAX_BYTES = int(__import__("os").environ.get("SIHAN_FETCH_MAX_BYTES", str(2_000_000)))
+_FETCH_MAX_URLS = int(__import__("os").environ.get("SIHAN_FETCH_MAX_URLS", "5"))
+_FETCH_ALLOW_PRIVATE = __import__("os").environ.get("SIHAN_FETCH_ALLOW_PRIVATE", "0") in ("1", "true", "yes")
+_FETCH_COOKIE = (__import__("os").environ.get("SIHAN_FETCH_COOKIE") or "").strip() or None
+_UA = __import__("os").environ.get(
+    "SIHAN_FETCH_UA",
+    "Mozilla/5.0 (compatible; SihanCompanion/1.0; +private) AppleWebKit/537.36 (KHTML, like Gecko) Chrome-like",
+)
 
 # Optional search
 try:
@@ -380,6 +396,105 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
         return []
 
 
+def _extract_urls_from_text(text: str) -> list[str]:
+    raw = re.findall(r"https?://[^\s\]>\\)\"'）\]〉】]+", text or "", flags=re.I)
+    out: list[str] = []
+    seen: set[str] = set()
+    for u in raw:
+        u = u.rstrip(".,;:!?，。；：（）【】)")
+        if len(u) < 12:
+            continue
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+        if len(out) >= _FETCH_MAX_URLS:
+            break
+    return out
+
+
+def _host_is_literal_private(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+        return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
+    except ValueError:
+        return False
+
+
+def _url_fetch_allowed(url: str) -> bool:
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").strip().lower()
+    if not host:
+        return False
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return _FETCH_ALLOW_PRIVATE
+    if _host_is_literal_private(host) and not _FETCH_ALLOW_PRIVATE:
+        return False
+    return True
+
+
+def _html_to_text(html: str, limit: int = 12000) -> str:
+    s = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
+    s = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", s)
+    s = re.sub(r"(?is)<[^>]+>", " ", s)
+    s = html_std.unescape(s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:limit]
+
+
+def _fetch_one_url(url: str) -> dict[str, str]:
+    if not _FETCH_ENABLED or not _url_fetch_allowed(url):
+        return {"url": url, "title": "", "text": "", "error": "blocked_or_disabled"}
+    headers = {"User-Agent": _UA, "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8"}
+    if _FETCH_COOKIE:
+        headers["Cookie"] = _FETCH_COOKIE
+    try:
+        with httpx.Client(
+            follow_redirects=True,
+            timeout=httpx.Timeout(_FETCH_TIMEOUT),
+            headers=headers,
+        ) as client:
+            r = client.get(url)
+        if r.status_code >= 400:
+            return {"url": url, "title": "", "text": "", "error": f"HTTP {r.status_code}"}
+        ct = (r.headers.get("content-type") or "").lower()
+        body = r.content[:_FETCH_MAX_BYTES]
+        text = ""
+        title = ""
+        if "html" in ct or body.lstrip().startswith(b"<"):
+            dec = body.decode("utf-8", errors="replace")
+            tm = re.search(r"(?is)<title[^>]*>([^<]{0,200})</title>", dec)
+            if tm:
+                title = html_std.unescape(tm.group(1).strip())
+            text = _html_to_text(dec)
+        else:
+            text = body.decode("utf-8", errors="replace")
+            text = re.sub(r"\s+", " ", text).strip()[:12000]
+        if not text and not title:
+            return {"url": url, "title": title, "text": "", "error": "empty_body"}
+        return {"url": url, "title": title, "text": text, "error": ""}
+    except Exception as e:
+        return {"url": url, "title": "", "text": "", "error": str(e)[:200]}
+
+
+def fetch_urls_text(urls: list[str]) -> list[dict[str, str]]:
+    if not urls:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(urls))) as pool:
+        futs = [pool.submit(_fetch_one_url, u) for u in urls]
+        out = []
+        for fut in concurrent.futures.as_completed(futs, timeout=_FETCH_TIMEOUT + 25):
+            try:
+                out.append(fut.result())
+            except Exception as e:
+                out.append({"url": "", "title": "", "text": "", "error": str(e)[:120]})
+    return out
+
+
 def build_context_block(
     companion_dir: Path,
     kb: MiniKnowledgeBase | None,
@@ -435,6 +550,24 @@ def build_context_block(
             for h in hits:
                 lines.append(f"- ({h['source']}) {h['text'][:500]}")
 
+    if _FETCH_ENABLED:
+        blob_urls = f"{user_text}\n{rq}"
+        direct = _extract_urls_from_text(blob_urls)
+        if direct:
+            rows = fetch_urls_text(direct)
+            lines.append("【直链页面摘录】(服务器代抓取，未收录站也可用)")
+            for row in rows:
+                err = (row.get("error") or "").strip()
+                if err:
+                    lines.append(f"- {row.get('url', '')} → {err}")
+                    continue
+                tit = row.get("title") or ""
+                tx = (row.get("text") or "")[:3500]
+                head = f"{row.get('url', '')}"
+                if tit:
+                    head += f" | {tit}"
+                lines.append(f"- {head}\n  {tx}")
+
     if web_enabled and should_web_search(user_text, multimodal=multimodal):
         q_web = rq if len(rq) >= 6 else user_text
         ws = web_search(q_web, max_results=web_top_k)
@@ -455,6 +588,12 @@ def should_web_search(user_text: str, *, multimodal: bool = False) -> bool:
         return True
     if len(t) < 4:
         return False
+    if re.search(
+        r"(https?://|打开这个链接|看这个网址|页面\s*http|原文链接|未收录|内网文档|局域网)",
+        t,
+        re.I,
+    ):
+        return True
     if re.search(
         r"(搜一下|搜索|帮我搜|查一下|网上查查?|去网上|浏览器|谷歌|必应|百度一下"
         r"|全世界|全球|国外|海外|国际新闻|外媒"
