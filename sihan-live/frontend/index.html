@@ -141,7 +141,7 @@ function fetchWithTimeout(url, options, ms) {
   const t = setTimeout(() => ctrl.abort(), ms);
   return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(t));
 }
-/** API：?api= 或 localStorage sihan_api_base 优先；否则同一主机上 61931 页面对齐 61930 */
+/** API：?api= 或 localStorage sihan_api_base 优先；aquan.xin 同域名智能默认；否则端口映射 61931→61930 */
 function getApiBase() {
   try {
     const q = new URLSearchParams(window.location.search).get('api');
@@ -150,6 +150,14 @@ function getApiBase() {
     if (ls && ls.trim()) return ls.trim().replace(/\/$/, '');
   } catch (e) { /* ignore */ }
   const o = window.location;
+  const host = (o.hostname || '').toLowerCase();
+  const isAquan = host === 'aquan.xin' || host === 'www.aquan.xin' || host.endsWith('.aquan.xin');
+  const port = o.port || (o.protocol === 'https:' ? '443' : '80');
+  if (isAquan) {
+    if (port === '61931') return `${o.protocol}//${o.hostname}:61930`;
+    if (port === '8001') return `${o.protocol}//${o.hostname}:61930`;
+    if (port === '80' || port === '443' || !o.port) return `${o.protocol}//${o.hostname}`.replace(/\/$/, '');
+  }
   if (o.hostname && o.port === '61931') return `${o.protocol}//${o.hostname}:61930`;
   if (o.hostname && (o.port === '8001' || o.port === '80') && o.hostname !== 'localhost' && o.hostname !== '127.0.0.1') {
     return `${o.protocol}//${o.hostname}:61930`;
