@@ -39,3 +39,25 @@ POST /kb/ingest-directory，JSON：{"path":"/home/linux/sihan-final/runtime/comp
 - `SIHAN_FETCH_ALLOW_PRIVATE=1` 允许访问 RFC1918 内网、localhost（**仅私有服务器且你自担风险时**打开）。
 - `SIHAN_FETCH_COOKIE=...` 浏览器里复制的 Cookie 字符串，用于需登录才有内容的页面（遵守站点条款）。
 - `SIHAN_FETCH_UA=...` 可自定义 User-Agent。
+
+## Linux 服务器 SSH 连阿权的 Mac（代码模式 / deploy）
+目标：在**本机**（此 Linux）上执行 `ssh mac...`，让 Mac 跑一条远程命令。**不要**把 Mac 密码写进聊天或 ` ```deploy `**（会进日志与对话历史）；用 **SSH 密钥**。
+
+### 推荐网络：Tailscale（Mac + 本服务器都装，同一账号）
+1. Mac：**系统设置 → 通用 → 共享 → 远程登录** 打开；记下 Tailscale 里 Mac 的 IP（如 `100.x.x.x`）。
+2. 服务器：生成专用密钥（若还没有）  
+   `ssh-keygen -t ed25519 -f /home/linux/.ssh/id_mac_aquan -N ""`  
+   把 **`/home/linux/.ssh/id_mac_aquan.pub`** 整行追加到 Mac 上对应用户的 **`~/.ssh/authorized_keys`**。  
+   `chmod 600 /home/linux/.ssh/id_mac_aquan`
+3. 试连：  
+   `ssh -i /home/linux/.ssh/id_mac_aquan -o StrictHostKeyChecking=accept-new 你的Mac用户名@100.x.x.x 'uname -a'`
+
+### 在聊天里怎么用（代码模式）
+让小涵在回复里写 ` ```deploy `，内容示例：  
+```bash
+ssh -i /home/linux/.ssh/id_mac_aquan -o StrictHostKeyChecking=accept-new -o BatchMode=yes 你的Mac用户名@100.x.x.x '要执行的命令'
+```
+`BatchMode=yes` 强制只用密钥，避免卡住等人输密码。
+
+### 账号信息放哪
+- **用户名、Tailscale IP、密钥路径** 可让阿权整理成一段 **kb 文件** 上传到知识库，或写进本文件的固定占位后再 `ingest-directory`，小涵检索得到即可；**密码不要进知识库/对话**。
