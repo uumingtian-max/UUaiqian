@@ -7,12 +7,13 @@ import hashlib
 import json
 import math
 import re
+import secrets
 import threading
 from pathlib import Path
 from typing import Any
 
 # 联网搜索在部分网络环境下较慢，避免阻塞整轮对话
-_WEB_SEARCH_TIMEOUT_SEC = float(__import__("os").environ.get("SIHAN_WEB_SEARCH_TIMEOUT", "4.5"))
+_WEB_SEARCH_TIMEOUT_SEC = float(__import__("os").environ.get("SIHAN_WEB_SEARCH_TIMEOUT", "3.0"))
 _WEB_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="ddg")
 
 # Optional search
@@ -77,10 +78,31 @@ def _to_tfidf(text: str) -> dict[str, float]:
     return {k: v / n for k, v in tf.items()}
 
 
+def _read_file_as_index_text(fp: Path, max_bytes: int = 12_000_000) -> str:
+    """任意扩展名：尽量当文本解码；否则登记为元数据块（仍可被关键词搜到）。"""
+    try:
+        raw = fp.read_bytes()
+    except OSError:
+        return ""
+    if len(raw) > max_bytes:
+        return f"[文件过大已截断索引: {fp.name}，约 {len(raw)} 字节。可改用较小 txt/md 或分包上传。]"
+    if b"\x00" in raw[:4096] and not fp.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json", ".xml", ".html", ".htm"}:
+        return f"[二进制或编码未知，已登记文件名: {fp.name}，{len(raw)} 字节。需要全文时请提供 UTF-8 文本或常见文档格式。]"
+    for enc in ("utf-8-sig", "utf-8", "gb18030", "latin-1"):
+        try:
+            t = raw.decode(enc)
+            if t and not t.isspace():
+                return t
+        except UnicodeDecodeError:
+            continue
+    return f"[无法解码为文本: {fp.name}，{len(raw)} 字节]"
+
+
 class MiniKnowledgeBase:
     """TF-IDF chunks keyed by owner; JSON file on disk."""
 
-    SUPPORTED = {".txt", ".md", ".markdown", ".json", ".csv", ".log"}
+    # 仍保留集合供展示；ingest 时实际接受任意文件，见 _read_file_as_index_text
+    SUPPORTED = {".txt", ".md", ".markdown", ".json", ".csv", ".log", ".py", ".yml", ".yaml", ".html", ".htm", ".xml", ".pdf", ".doc"}
 
     def __init__(self, storage_path: Path, allowed_roots: list[Path], chunk_size: int = 400, overlap: int = 80) -> None:
         self.storage_path = storage_path
@@ -123,14 +145,23 @@ class MiniKnowledgeBase:
 
     def ingest_path(self, owner_id: str, source_path: str) -> tuple[int, int]:
         p = self._allowed(Path(source_path))
-        files = [p] if p.is_file() else [f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in self.SUPPORTED]
+        skip_dirs = {".git", "__pycache__", "node_modules", ".venv", "venv"}
+        if p.is_file():
+            files = [p]
+        else:
+            files = []
+            for f in p.rglob("*"):
+                if not f.is_file():
+                    continue
+                if any(part in skip_dirs for part in f.parts):
+                    continue
+                files.append(f)
         if owner_id not in self._by_owner:
             self._by_owner[owner_id] = []
         n_files = n_chunks = 0
         for fp in files:
-            try:
-                text = fp.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
+            text = _read_file_as_index_text(fp)
+            if not text or not str(text).strip():
                 continue
             parts = _chunk_text(text, self.chunk_size, self.overlap)
             if not parts:
@@ -144,6 +175,21 @@ class MiniKnowledgeBase:
                 n_chunks += 1
         self._save()
         return n_files, n_chunks
+
+    def save_upload(self, owner_id: str, filename: str, data: bytes) -> Path:
+        """把上传落到 kb_import/{owner}/uploads/ 下并返回绝对路径。"""
+        root = self.allowed_roots[0].expanduser().resolve()
+        self._allowed(root)
+        sub = root / owner_id / "uploads"
+        sub.mkdir(parents=True, exist_ok=True)
+        self._allowed(sub)
+        safe = re.sub(r"[^\w\-. \u4e00-\u9fff]", "_", Path(filename or "file").name)[:180]
+        dest = sub / f"{secrets.token_hex(4)}_{safe}"
+        dest.write_bytes(data)
+        return dest.resolve()
+
+    def ingest_uploaded_file(self, owner_id: str, dest_path: Path) -> tuple[int, int]:
+        return self.ingest_path(owner_id, str(dest_path))
 
 
 def _memory_path(companion_dir: Path, owner_id: str) -> Path:
@@ -165,17 +211,91 @@ def load_memory(companion_dir: Path, owner_id: str) -> dict[str, Any]:
             ),
             "transcript": [],
             "milestones": [],
+            "long_term": {"facts": [], "preferences": "", "relationship_notes": ""},
         }
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data.setdefault("long_term", {"facts": [], "preferences": "", "relationship_notes": ""})
+        lt0 = data["long_term"]
+        if isinstance(lt0, dict):
+            lt0.setdefault("facts", [])
+            lt0.setdefault("preferences", "")
+            lt0.setdefault("relationship_notes", "")
+        return data
     except Exception:
-        return {"user_profile": {"name": "阿权"}, "transcript": [], "milestones": [], "personality_core": CHARACTER_NOTES_DEFAULT}
+        return {"user_profile": {"name": "阿权"}, "transcript": [], "milestones": [], "personality_core": CHARACTER_NOTES_DEFAULT, "long_term": {"facts": [], "preferences": "", "relationship_notes": ""}}
 
 
 def save_memory(companion_dir: Path, owner_id: str, data: dict[str, Any]) -> None:
     path = _memory_path(companion_dir, owner_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+_MAX_FACTS = 64
+_MAX_FACT_LEN = 220
+
+
+def _strip_overlap(new_items: list[str], old: list[str]) -> list[str]:
+    out: list[str] = []
+    for s in new_items:
+        t = (s or "").strip()[:_MAX_FACT_LEN]
+        if len(t) < 8:
+            continue
+        if any(t in o or o in t for o in old):
+            continue
+        out.append(t)
+    return out
+
+
+def merge_long_term_from_turn(mem: dict[str, Any], user_text: str, assistant_text: str) -> None:
+    """从对话里粗抽「像人记住的事」：偏好/事实/约定，写入 long_term；不靠整段聊天堆砌。"""
+    ut = (user_text or "").strip()
+    at = (assistant_text or "").strip()
+    if len(ut) < 6 and len(at) < 10:
+        return
+    blob = f"{ut}\n{at}"
+    lt = mem.setdefault("long_term", {})
+    facts = list(lt.get("facts") or [])
+    prefs = str(lt.get("preferences") or "").strip()
+    rel = str(lt.get("relationship_notes") or "").strip()
+
+    # 简单规则：用户自述偏好
+    for m in re.finditer(
+        r"(我(?:不)?喜欢|我爱|我讨厌|我习惯|别喊我|叫我)([^。！？\n]{2,80})",
+        ut,
+    ):
+        frag = (m.group(1) + m.group(2)).strip()
+        for f in _strip_overlap([frag], facts):
+            facts.append(f)
+    for m in re.finditer(r"以后(?:都)?要记(?:住)?[:：]\s*([^。\n]{4,120})", ut):
+        for f in _strip_overlap([m.group(1).strip()], facts):
+            facts.append(f)
+
+    # 助手侧明确复述「记住啦」类
+    if re.search(r"记住|记下了|记心上|帮你记", at) and len(ut) > 8:
+        line = f"曾约定/提到过：{ut[:100]}"
+        for f in _strip_overlap([line], facts):
+            facts.append(f)
+
+    if re.search(r"(口味|爱吃|不吃|忌口|怕辣|素食|海鲜)", blob):
+        hit = re.search(r"([^。！？\n]{0,40}(?:口味|爱吃|不吃|忌口|怕辣|素食|海鲜)[^。！？\n]{0,60})", ut)
+        if hit:
+            p = hit.group(1).strip()[:180]
+            if p and p not in prefs:
+                prefs = (prefs + "；" + p).strip("；") if prefs else p
+    if re.search(r"(纪念日|在一起|第一次|咱们|老公|阿权)", blob) and len(ut) > 10:
+        hit = re.search(r"([^。！？\n]{8,100}(?:纪念日|在一起|第一次)[^。！？\n]{0,40})", ut + at)
+        if hit:
+            rnote = hit.group(1).strip()[:200]
+            if rnote and rnote not in rel:
+                rel = (rel + "；" + rnote).strip("；") if rel else rnote
+
+    while len(facts) > _MAX_FACTS:
+        facts.pop(0)
+    lt["facts"] = facts
+    lt["preferences"] = prefs[-1200:] if len(prefs) > 1200 else prefs
+    lt["relationship_notes"] = rel[-1200:] if len(rel) > 1200 else rel
 
 
 def remember_turn(
@@ -201,6 +321,7 @@ def remember_turn(
         while len(blob) > max_chars and len(tr) > 4:
             tr.pop(0)
             blob = json.dumps(tr, ensure_ascii=False)
+        merge_long_term_from_turn(mem, ut, at)
         save_memory(companion_dir, owner_id, mem)
 
 
@@ -257,6 +378,22 @@ def build_context_block(
         "【性格记忆】" + str(mem.get("personality_core") or CHARACTER_NOTES_DEFAULT)
     )
 
+    lt = mem.get("long_term") or {}
+    lt_parts: list[str] = []
+    facts = lt.get("facts") or []
+    if isinstance(facts, list) and facts:
+        for f in facts[-16:]:
+            if isinstance(f, str) and f.strip():
+                lt_parts.append(f.strip()[:_MAX_FACT_LEN])
+    pref = str(lt.get("preferences") or "").strip()
+    if pref:
+        lt_parts.append("偏好：" + pref[:400])
+    reln = str(lt.get("relationship_notes") or "").strip()
+    if reln:
+        lt_parts.append("关系：" + reln[:400])
+    if lt_parts:
+        lines.append("【长期记得（摘）】" + " | ".join(lt_parts))
+
     tr = mem.get("transcript") or []
     if tr:
         tail = tr[-6:]
@@ -288,23 +425,19 @@ def build_context_block(
 
 
 def should_web_search(user_text: str) -> bool:
-    """需要资料/事实/教程/行情等时联网；日常极短闲聊不搜。"""
+    """明确要查资料时才联网，减少日常聊天被拖慢。"""
     t = user_text.strip()
     if len(t) < 6:
         return False
     if re.search(
         r"(搜一下|搜索|帮我搜|查一下|网上查查?|去网上|浏览器|谷歌|必应|百度一下"
         r"|新闻|维基|百科|股价|股指|涨停|天气预报|气温|台风|地震"
-        r"|汇率|美元兑|实时数据|排名榜|赛程|比分|奥运会|资料|官网|文档|下载"
-        r"|怎么安装|如何安装|报错|错误码|版本号|release|docker hub)",
+        r"|汇率|美元兑|实时数据|排名榜|赛程|比分|奥运会|官网|文档\s*下载"
+        r"|怎么安装|如何安装|安装教程|报错|错误码|版本号|release|docker hub)",
         t,
         re.I,
     ):
         return True
     if re.search(r"(今天|现在|今年).{0,6}(几号|星期几|农历|天气)", t):
-        return True
-    if len(t) >= 10 and re.search(
-        r"(怎么|如何|为什么|是什么|哪个好|推荐|教程|最新|价格|哪家好|区别在哪)", t
-    ):
         return True
     return False

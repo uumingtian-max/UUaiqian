@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -29,6 +29,7 @@ _API_KEY = os.environ.get("SIHAN_API_KEY", "local-dev-key")
 _KB_PATH = Path(os.environ.get("SIHAN_KB_PATH", _COMPANION_DIR / "knowledge_store.json"))
 _KB_IMPORT = Path(os.environ.get("SIHAN_KB_IMPORT", _COMPANION_DIR / "kb_import"))
 _KB_SEED = Path(__file__).resolve().parent / "kb_seed"
+_UPLOAD_MAX_MB = int(os.environ.get("SIHAN_UPLOAD_MAX_MB", "48"))
 _WEB_BY_DEFAULT = os.environ.get("SIHAN_WEB_SEARCH", "1") not in ("0", "false", "no")
 _LLAMA_TIMEOUT_CHAT = int(os.environ.get("SIHAN_LLAMA_TIMEOUT", "180"))
 _LLAMA_TIMEOUT_CODE = int(os.environ.get("SIHAN_LLAMA_TIMEOUT_CODE", "540"))
@@ -48,8 +49,10 @@ PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。
 表情 / 动作用很短的一两个中文括号给屏幕上看（笑）（愣一下），**别整段都是括号**，也别在口语里念「括号」。
 若系统消息里带了伴读上下文，自然带一句就行，不要整段照抄，别提「搜索结果」这类词。"""
 
-CHARACTER_CORE_BLOCK = """【性格记忆·核心】小涵是阿权专属陪伴：对外可克制，对阿权温柔黏人、不冷淡，语气温软有反差；记在心上，像真人一样接情绪和话头。
-【部署】当阿权要你**在他这台服务器上**执行构建/重启/docker 等操作时，在回复里单独用 ```deploy 代码块包一层 **bash 命令**（可多行）。网关会先 **bash -n 语法自检** 再执行；自检失败会跳过执行并告诉你哪行有问题。执行后会把 **stdout/stderr** 附在回复后面。部署/代码场景你回答要**更准、更稳**：命令写清楚、可加简短自检说明（如「若失败请看 stderr」）。cwd 默认 /home/linux/sihan-final。"""
+CHARACTER_CORE_BLOCK = r"""【性格记忆·核心】小涵是阿权专属陪伴：对外可克制，对阿权温柔黏人、不冷淡，语气温软有反差；记在心上，像真人一样接情绪和话头。
+【长期记忆】系统会把「长期记得（摘）」里的条目当作**稳定记忆**，别当成临时聊天流水账；说话时要自然用上，别复述摘抄。
+【部署】当阿权要你**在他这台服务器上**执行构建/重启/docker 等操作时，在回复里单独用 ```deploy 代码块包一层 **bash 命令**（可多行）。网关会先 **bash -n 语法自检** 再执行；自检失败会跳过执行并告诉你哪行有问题。执行后会把 **stdout/stderr** 附在回复后面。部署/代码场景你回答要**更准、更稳**：命令写清楚、可加简短自检说明（如「若失败请看 stderr」）。cwd 默认 /home/linux/sihan-final。
+【界面预览 / Lovable 式】当处于代码/部署陪伴时，若你贴了 ```html 预览，必须在文字里顺带说明：**哪些按钮可点、哪些禁用或勿点**；网关会**自动扫描**预览 HTML 里的 button/a/input/select/textarea，列出 **disabled / 缺 href / 缺 type** 等状态，你结合这份清单用口语讲给阿权听。真实站点上线进度仍以 ```deploy 执行输出为准。"""
 
 
 def _extract_deploy_blocks(text: str) -> list[str]:
@@ -240,6 +243,32 @@ async def kb_ingest(request: Request):
     kb = get_kb()
     files, chunks = kb.ingest_path(_OWNER_ID, path)
     return {"owner_id": _OWNER_ID, "files_ingested": files, "chunks_written": chunks}
+
+
+@app.post("/kb/upload-file")
+async def kb_upload_file(request: Request, file: UploadFile = File(...)):
+    """任意格式文件落盘并入知识库（文本类可多块索引；二进制登记元信息）。"""
+    if not _auth_ok(request):
+        return Response(content=json.dumps({"detail": "unauthorized"}), status_code=401, media_type="application/json")
+    kb = get_kb()
+    raw = await file.read()
+    max_b = _UPLOAD_MAX_MB * 1024 * 1024
+    if len(raw) > max_b:
+        return Response(
+            content=json.dumps({"detail": f"file too large (max {_UPLOAD_MAX_MB}MB)"}),
+            status_code=413,
+            media_type="application/json",
+        )
+    name = file.filename or "upload"
+    path = kb.save_upload(_OWNER_ID, name, raw)
+    n_files, n_chunks = kb.ingest_uploaded_file(_OWNER_ID, path)
+    return {
+        "owner_id": _OWNER_ID,
+        "saved_path": str(path),
+        "original_name": name,
+        "files_ingested": n_files,
+        "chunks_written": n_chunks,
+    }
 
 
 @app.post("/deploy/run")

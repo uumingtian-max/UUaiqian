@@ -50,6 +50,17 @@
     #previewFrame{flex:1;min-height:160px;width:100%;border:0;background:#f6f8fa; box-sizing:border-box; outline:3px solid #30363d; outline-offset:-3px}
     #studioPlain{flex:0 0 38%;min-height:120px;max-height:42vh;overflow:auto;padding:14px 16px;font-size:14px;line-height:1.7;background:#0d1117;border-top:2px solid #30363d;white-space:pre-wrap;color:#c9d1d9}
     .voice-pill{display:none}
+
+    /* 窄屏：代码模式上下分栏，避免挤成一团 */
+    @media (max-width: 720px) {
+      #appRoot{flex-direction:column;}
+      body.code-mode .stage{flex:0 0 42vh;min-height:220px;border-right:none;border-bottom:1px solid rgba(140,170,230,.35)}
+      body.code-mode #studioColumn{flex:1 1 auto;min-height:0;border-left:none;border-top:1px solid #30363d}
+      body.code-mode .reply{bottom:132px;max-height:28vh;font-size:14px}
+      body.code-mode .panel{bottom:8px;padding:8px}
+      .sub{flex-wrap:wrap}
+      #fileName,#kbFileName{max-width:100%}
+    }
   </style>
 </head>
 <body>
@@ -73,18 +84,21 @@
         <button id="sendBtn" class="send" onclick="sendInteraction(event)">发送</button>
       </div>
       <div class="sub">
-        <button type="button" class="uploadBtn" onclick="pickMedia()">📎 图片 / 视频</button>
-        <div id="fileName">未选择</div>
+        <button type="button" class="uploadBtn" onclick="pickMedia()">图/视频</button>
+        <button type="button" class="uploadBtn" onclick="pickKbFile()" title="任意格式，入库后可被自动检索">知识库</button>
+        <div id="fileName">媒体未选</div>
+        <div id="kbFileName">文档未选</div>
       </div>
     </div>
 
     <input id="mediaFile" type="file" accept="image/*,video/*" />
+    <input id="kbFile" type="file" />
     <audio id="audioPlayer" playsinline></audio>
   </div>
 
   <aside id="studioColumn" aria-label="代码与预览">
     <div class="studio-head">右边｜页面预览 · 白话说明（不用懂代码也能对着看）</div>
-    <div class="studio-hint">小涵会尽量用「点哪里、哪个别点」这种说法说明。若她贴了整页 HTML，会尽量在下面框里预览（仅本地示意，复杂网站请用真实地址）。</div>
+    <div class="studio-hint">左边可随时把<strong>任意文件</strong>点「知识库」上传，她会自动检索。下面预览框会<strong>扫描按钮/链接是否可点</strong>（近似 Lovable）；真实部署进度看她执行的命令输出。</div>
     <iframe id="previewFrame" title="预览" sandbox="allow-same-origin"></iframe>
     <div id="studioPlain"></div>
   </aside>
@@ -137,6 +151,8 @@ const LS_INTERACTION = 'sihan_interaction_mode';
 const LS_LAYOUT = 'sihan_layout_mode';
 
 let pendingMedia = null;
+let pendingKbFile = null;
+let lastKbIngestNote = '';
 let lastAudioUrl = null;
 let sending = false;
 let conversationHistory = [];
@@ -276,7 +292,7 @@ function buildSystemPrompt() {
     return baseCode + `
 
 【当前：代码/部署陪伴模式】阿权不太会看代码。先用口语讲清「要点哪里、哪个先别动」；需要时再补一点技术细节，别写成长篇文档。
-若合适，用单独一段 \`\`\`html  包一小段可预览的静态页面示例（少用脚本，最好不要 script），方便他在右边预览框里看见样子。HTML 里加简短注释标「可点」「先别点」。`;
+若合适，用单独一段 \`\`\`html  包一小段可预览的静态页面示例（少用脚本，最好不要 script），方便他在右边预览框里看见样子。HTML 里加简短注释标「可点」「先别点」；**界面会自动列出预览里各按钮/链接的大致可用状态**，你要对着这份清单用白话讲清楚。`;
   }
   return base;
 }
@@ -361,14 +377,28 @@ function videoFileToFrameDataURL(file, maxSide = 960, quality = 0.82) {
 
 async function buildUserContent(text) {
   const raw = (text || '').trim();
-  if (!pendingMedia) return raw || '（无文字）';
+  let extra = '';
+  if (pendingKbFile) {
+    const { ok, note } = await uploadKbFileSilently(pendingKbFile);
+    pendingKbFile = null;
+    try { document.getElementById('kbFile').value = ''; } catch (e) {}
+    document.getElementById('kbFileName').textContent = '文档未选';
+    lastKbIngestNote = note || '';
+    if (ok) {
+      extra = `\n（我刚上传了资料进知识库，文件名：${note}；请结合检索到的内容回答。）`;
+    } else {
+      extra = `\n（资料上传失败：${note}；请口头说下怎么办。）`;
+    }
+  }
+  if (!pendingMedia) return (raw || '（无文字）') + extra;
+
   const file = pendingMedia;
   const isVid = file.type && file.type.startsWith('video/');
   let dataUrl;
   if (isVid) {
     if (file.size > 120 * 1024 * 1024) {
       pendingMedia = null;
-      document.getElementById('fileName').textContent = '未选择';
+      document.getElementById('fileName').textContent = '媒体未选';
       try { document.getElementById('mediaFile').value = ''; } catch (e) {}
       throw new Error('视频太大（建议 120MB 内），可换短视频或只发截图');
     }
@@ -376,7 +406,7 @@ async function buildUserContent(text) {
       dataUrl = await videoFileToFrameDataURL(file, 960, 0.82);
     } catch (e) {
       pendingMedia = null;
-      document.getElementById('fileName').textContent = '未选择';
+      document.getElementById('fileName').textContent = '媒体未选';
       try { document.getElementById('mediaFile').value = ''; } catch (e2) {}
       throw new Error('视频抽帧失败，试试更短 mp4 或先发一张图');
     }
@@ -385,11 +415,11 @@ async function buildUserContent(text) {
     dataUrl = await downscaleDataUrl(dataUrl, 1024, 0.82);
   }
   pendingMedia = null;
-  document.getElementById('fileName').textContent = '未选择';
+  document.getElementById('fileName').textContent = '媒体未选';
   try { document.getElementById('mediaFile').value = ''; } catch (e) {}
-  const userText = isVid
+  const userText = (isVid
     ? (raw || '这是本地视频里截的一帧画面，用自然口吻说说你看到什么、像在做什么场景。')
-    : (raw || '请看看这张图，用自然口吻说说你看到了什么。');
+    : (raw || '请看看这张图，用自然口吻说说你看到了什么。')) + extra;
   return [{ type: 'text', text: userText }, { type: 'image_url', image_url: { url: dataUrl } }];
 }
 
@@ -399,6 +429,8 @@ function stripTechnicalTailForTTS(text) {
   let s = text.replace(/```deploy\s*[\s\S]*?```/gi, '');
   const cut = s.indexOf('【服务器执行结果】');
   if (cut >= 0) s = s.slice(0, cut);
+  const cut2 = s.indexOf('【预览控件');
+  if (cut2 >= 0) s = s.slice(0, cut2);
   return s.trim();
 }
 
@@ -484,6 +516,68 @@ function extractHtmlBlock(text) {
   return m ? m[1].trim() : '';
 }
 
+/** 扫描预览 HTML 里可交互控件的大致状态（沙盒内静态推断，非运行时行为） */
+function auditInteractiveHtml(html) {
+  if (!html || !html.trim()) return '';
+  let doc;
+  try {
+    const p = new DOMParser();
+    doc = p.parseFromString(html, 'text/html');
+  } catch (e) {
+    return '';
+  }
+  const sel = 'button, a[href], input, select, textarea, [role="button"]';
+  const nodes = Array.from(doc.querySelectorAll(sel));
+  if (!nodes.length) return '【预览控件】（未发现按钮/链接/表单控件，或为纯展示页）';
+  const lines = ['【预览控件 · 静态检查】'];
+  let n = 0;
+  for (const el of nodes) {
+    if (n >= 40) {
+      lines.push(`… 另有 ${nodes.length - 40} 项已省略`);
+      break;
+    }
+    const tag = el.tagName.toLowerCase();
+    let label = (el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+    if (!label) {
+      label = (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 32);
+    }
+    if (!label) label = '(无文案)';
+    const parts = [tag];
+    if (tag === 'a') {
+      const h = el.getAttribute('href') || '';
+      if (!h || h === '#' || h.toLowerCase().startsWith('javascript:'))
+        parts.push('href可疑/空');
+    }
+    if (tag === 'button' || tag === 'input' || el.getAttribute('role') === 'button') {
+      const typ = el.getAttribute('type') || (tag === 'button' ? 'submit' : '');
+      if (tag === 'input' && !typ) parts.push('未写type');
+    }
+    if (el.hasAttribute('disabled')) parts.push('disabled');
+    if (el.getAttribute('aria-disabled') === 'true') parts.push('aria-disabled');
+    lines.push(`- ${parts.join(' · ')} · 「${label}」`);
+    n += 1;
+  }
+  return lines.join('\n');
+}
+
+async function uploadKbFileSilently(file) {
+  if (!file) return { ok: false, note: '无文件' };
+  const fd = new FormData();
+  fd.append('file', file, file.name || 'upload');
+  try {
+    const r = await fetchWithTimeout(`${API}/kb/upload-file`, { method: 'POST', headers: { 'X-Owner-Id': OWNER_ID, 'X-API-Key': API_KEY }, body: fd }, 120000);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return { ok: false, note: j.detail || `HTTP ${r.status}` };
+    }
+    const name = j.original_name || file.name;
+    const chunks = j.chunks_written != null ? `${j.chunks_written} 条索引` : '';
+    return { ok: true, note: `${name}${chunks ? ' · ' + chunks : ''}` };
+  } catch (e) {
+    return { ok: false, note: e && e.name === 'TimeoutError' ? '上传超时' : '网络错误' };
+  }
+}
+
 function renderStudio(reply) {
   const plainEl = document.getElementById('studioPlain');
   const frame = document.getElementById('previewFrame');
@@ -494,7 +588,9 @@ function renderStudio(reply) {
   }
   const html = extractHtmlBlock(reply);
   const rest = html ? reply.replace(/```html\s*[\s\S]*?```/i, '').trim() : reply;
-  plainEl.textContent = rest || '（这里没有额外说明）';
+  const ctl = auditInteractiveHtml(html);
+  const plainBase = rest || '（这里没有额外说明）';
+  plainEl.textContent = ctl ? `${plainBase}\n\n${ctl}` : plainBase;
   if (html) {
     try {
       frame.srcdoc = stripHtmlForPreview(html);
@@ -526,7 +622,7 @@ async function sendInteraction(e) {
 
   const input = document.getElementById('userText');
   let text = (input.value || '').trim();
-  if (!text && !pendingMedia) text = '在吗？';
+  if (!text && !pendingMedia && !pendingKbFile) text = '在吗？';
 
   applyCommandsFromUser(text);
 
@@ -538,7 +634,13 @@ async function sendInteraction(e) {
   const mediaTag = pendingMedia
     ? (pendingMedia.type && pendingMedia.type.startsWith('video/') ? '（视频·截帧）' : '（图）')
     : '';
-  const userMsgPreview = pendingMedia ? (text ? `${text}${mediaTag}` : mediaTag || '（媒体）') : text;
+  const kbTag = pendingKbFile ? `（资料·${pendingKbFile.name}）` : '';
+  let userMsgPreview = text;
+  if (pendingMedia) {
+    userMsgPreview = `${text}${mediaTag}${kbTag}`.trim() || '（媒体）';
+  } else if (pendingKbFile) {
+    userMsgPreview = `${text}${kbTag}`.trim() || kbTag;
+  }
 
   if (interactionMode === 'voice') {
     setReply(`你：${escapeHtml(userMsgPreview)}`);
@@ -657,6 +759,10 @@ function pickMedia() {
   document.getElementById('mediaFile').click();
 }
 
+function pickKbFile() {
+  document.getElementById('kbFile').click();
+}
+
 document.getElementById('mediaFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -668,6 +774,15 @@ document.getElementById('mediaFile').addEventListener('change', (e) => {
     label = file.name + '（视频）';
   }
   document.getElementById('fileName').textContent = label;
+});
+
+document.getElementById('kbFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  pendingKbFile = file;
+  let label = file.name;
+  if (label.length > 18) label = label.slice(0, 14) + '…';
+  document.getElementById('kbFileName').textContent = label;
 });
 
 document.getElementById('userText').addEventListener('keydown', (e) => {
