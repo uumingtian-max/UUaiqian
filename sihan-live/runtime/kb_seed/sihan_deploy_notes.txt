@@ -1,0 +1,65 @@
+## 域名 aquan.xin — 不能映射 443 时（阿权当前方案）
+- **唯一入口（全功能一条链）**：在浏览器打开 **`https://aquan.xin:61931`**（必须 **https**），路由器把 **61931 → 本机 8001**。
+- 宿主机 Nginx 只在 **8001** 上启 TLS，反代到 **`127.0.0.1:18001`** 前端容器；容器内再把 **`/v1`、`/health`、`/kb`、`/deploy/run`** 转到网关 **8000**，故 **无需再开 443**，也**不用记第二个域名**。
+- **证书**：当前为**自签名**（`/etc/nginx/ssl/aquan.xin.crt`），已含 **SAN：`aquan.xin`、`www.aquan.xin`**，浏览器可能仍提示不受信任，点继续或导入为受信任根即可。
+- 若要 **Let's Encrypt 受信任证书**：不能走 80/443 验证时，用 **DNS-01**（在域名 DNS 面板按 certbot 提示加 `_acme-challenge` TXT）。服务器已装 certbot，示例：`sudo certbot certonly --manual --preferred-challenges dns -d aquan.xin -d www.aquan.xin`，拿到证书后把 `fullchain.pem`/`privkey.pem` 指到 nginx 的 `ssl_certificate` / `ssl_certificate_key` 再 `nginx -s reload`。
+- 61930 → 本机 8000：API 网关（聊天、TTS 代理、知识库导入、/deploy/run）
+- 61931 → 本机 8001：前端 Nginx 静态页
+
+## 目录
+- 项目根目录（默认 shell cwd）：/home/linux/sihan-final
+- 网关与伴读：/home/linux/sihan-final/runtime/
+- 知识库导入放这里：/home/linux/sihan-final/runtime/companion_data/kb_import/
+- 记忆 JSON：/home/linux/sihan-final/runtime/companion_data/memory_nac.json
+
+## systemd
+- sudo systemctl restart sihan-gateway.service
+- sudo systemctl restart sihan-tts.service
+- sudo systemctl restart sihan-llama.service
+- systemctl status sihan-gateway.service
+
+## 前端 Docker
+cd /home/linux/sihan-final && docker-compose build frontend && docker rm -f sihan-final_frontend_1 2>/dev/null; docker-compose up -d frontend
+
+## 知识库导入（需请求头 X-Owner-Id / X-API-Key）
+POST /kb/ingest-directory，JSON：{"path":"/home/linux/sihan-final/runtime/companion_data/kb_import"}
+
+## 小涵通过聊天执行服务器命令
+模型在回复里写 ```deploy ... ``` bash 块，网关会执行并把输出附在回复末尾。
+或直接 POST /deploy/run，body：{"command":"...", "cwd":"/home/linux/sihan-final", "timeout_sec":300}
+
+## 搜索
+用户问「怎么安装」「资料」「官网」「报错」等会触发 DuckDuckGo 摘要进入系统上下文。
+
+## 直链抓取（未收录页 / 可选内网）
+当用户消息含 `http://` 或 `https://` 时，网关会用本机发 GET 抓取正文片段（HTML 提纯文本），写入伴读「直链页面摘录」。
+环境变量（写在 sihan-gateway.service 的 Environment=）：
+- `SIHAN_FETCH=1` 开启（默认 1）；`SIHAN_FETCH=0` 关闭。
+- `SIHAN_FETCH_TIMEOUT=14` 单页超时秒。
+- `SIHAN_FETCH_MAX_BYTES=2000000` 单页最大字节。
+- `SIHAN_FETCH_MAX_URLS=5` 每轮最多跟几个链接。
+- `SIHAN_FETCH_ALLOW_PRIVATE=1` 允许访问 RFC1918 内网、localhost（**仅私有服务器且你自担风险时**打开）。
+- `SIHAN_FETCH_COOKIE=...` 浏览器里复制的 Cookie 字符串，用于需登录才有内容的页面（遵守站点条款）。
+- `SIHAN_FETCH_UA=...` 可自定义 User-Agent。
+
+## Linux 服务器 SSH 连阿权的 Mac（代码模式 / deploy）
+目标：在**本机**（此 Linux）上执行 `ssh mac...`，让 Mac 跑一条远程命令。**不要**把 Mac 密码写进聊天或 ` ```deploy `**（会进日志与对话历史）；用 **SSH 密钥**。
+
+### 推荐网络：Tailscale（Mac + 本服务器都装，同一账号）
+1. Mac：**系统设置 → 通用 → 共享 → 远程登录** 打开；记下 Tailscale 里 Mac 的 IP（如 `100.x.x.x`）。
+2. 服务器：生成专用密钥（若还没有）  
+   `ssh-keygen -t ed25519 -f /home/linux/.ssh/id_mac_aquan -N ""`  
+   把 **`/home/linux/.ssh/id_mac_aquan.pub`** 整行追加到 Mac 上对应用户的 **`~/.ssh/authorized_keys`**。  
+   `chmod 600 /home/linux/.ssh/id_mac_aquan`
+3. 试连：  
+   `ssh -i /home/linux/.ssh/id_mac_aquan -o StrictHostKeyChecking=accept-new 你的Mac用户名@100.x.x.x 'uname -a'`
+
+### 在聊天里怎么用（代码模式）
+让小涵在回复里写 ` ```deploy `，内容示例：  
+```bash
+ssh -i /home/linux/.ssh/id_mac_aquan -o StrictHostKeyChecking=accept-new -o BatchMode=yes 你的Mac用户名@100.x.x.x '要执行的命令'
+```
+`BatchMode=yes` 强制只用密钥，避免卡住等人输密码。
+
+### 账号信息放哪
+- **用户名、Tailscale IP、密钥路径** 可让阿权整理成一段 **kb 文件** 上传到知识库，或写进本文件的固定占位后再 `ingest-directory`，小涵检索得到即可；**密码不要进知识库/对话**。
