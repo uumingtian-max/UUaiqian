@@ -31,9 +31,14 @@ _KB_IMPORT = Path(os.environ.get("SIHAN_KB_IMPORT", _COMPANION_DIR / "kb_import"
 _KB_SEED = Path(__file__).resolve().parent / "kb_seed"
 _WEB_BY_DEFAULT = os.environ.get("SIHAN_WEB_SEARCH", "1") not in ("0", "false", "no")
 
-# 单次助手回复上限（网关会把客户端更大的 max_tokens 压到此值；偏自然停顿，不强制「越短越好」）
-_REPLY_MAX_TOKENS = int(os.environ.get("SIHAN_REPLY_MAX_TOKENS", "220"))
+# 单次助手回复上限；网关会把客户端更大的 max_tokens 压到「自动档位」以下
 _CODE_MAX_TOKENS = int(os.environ.get("SIHAN_CODE_MAX_TOKENS", "720"))
+# 聊天三档（自动按你这句话选）：短/正常/长；仅一人用时也可全交给自动
+_REPLY_CAP_BRIEF = int(os.environ.get("SIHAN_REPLY_CAP_BRIEF", "120"))
+_REPLY_CAP_NORMAL = int(os.environ.get("SIHAN_REPLY_CAP_NORMAL", "220"))
+_REPLY_CAP_LONG = int(os.environ.get("SIHAN_REPLY_CAP_LONG", "420"))
+# 绝对天花板（防一次撑爆延迟）
+_REPLY_CAP_MAX = int(os.environ.get("SIHAN_REPLY_CAP_MAX", "640"))
 
 PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。
 【关系】你是阿权专属的私人陪伴：只黏他、站他这边，对他温柔、不冷淡、不敷衍；偶尔小任性但很听劝，像真情侣微信/电话那样自然聊，有软有甜的反差感。可叫他「阿权」「老公」随语境自然换，别机械化。
@@ -114,9 +119,32 @@ def _user_requests_code_mode(user_line: str) -> bool:
     )
 
 
-def _normalize_sampling(payload: dict[str, Any], *, code_mode: bool) -> None:
-    """限制过长输出；不强制「越短越好」，温度由客户端或上游自定。"""
-    cap = _CODE_MAX_TOKENS if code_mode else _REPLY_MAX_TOKENS
+def _auto_reply_cap(user_line: str, code_mode: bool) -> int:
+    """根据本轮用户话自动选「短→快」或「长→细」，不用你手调参数。"""
+    if code_mode:
+        return min(_CODE_MAX_TOKENS, _REPLY_CAP_MAX)
+    t = (user_line or "").strip()
+    if not t:
+        return min(_REPLY_CAP_NORMAL, _REPLY_CAP_MAX)
+    # 明显只要一口应：短句、问候
+    if len(t) <= 10 and re.search(r"^(在吗|在么|嗯|哦|好|想你|抱抱|老婆|老公|小涵|干嘛|干啥|早|晚安|睡了|吃了)[…!！?？。.~～\s]*$", t):
+        return min(_REPLY_CAP_BRIEF, _REPLY_CAP_MAX)
+    # 明示要多说 / 讲细 / 讲故事
+    if re.search(
+        r"(多说|详细|展开|说细|说全|长一点|慢点说|讲明白|说清楚|讲清楚|完整|仔细"
+        r"|科普|教程|步骤|原因|为什么|前前后后|来龙去脉|统统|全都)",
+        t,
+    ):
+        return min(_REPLY_CAP_LONG, _REPLY_CAP_MAX)
+    # 话本身很长，多半是正经事：给长一点
+    if len(t) >= 120:
+        return min(max(_REPLY_CAP_NORMAL, _REPLY_CAP_LONG // 2 + 80), _REPLY_CAP_MAX)
+    return min(_REPLY_CAP_NORMAL, _REPLY_CAP_MAX)
+
+
+def _normalize_sampling(payload: dict[str, Any], *, code_mode: bool, user_line: str = "") -> None:
+    """按本轮意图自动选 cap：短问候快回，要数步骤/长文则放宽。"""
+    cap = _auto_reply_cap(user_line, code_mode)
     mt = payload.get("max_tokens")
     if mt is None:
         payload["max_tokens"] = cap
@@ -244,7 +272,7 @@ async def chat_completions(req: Request):
 
     payload["messages"] = messages
     code_mode = _user_requests_code_mode(user_line)
-    _normalize_sampling(payload, code_mode=code_mode)
+    _normalize_sampling(payload, code_mode=code_mode, user_line=user_line)
 
     headers = {"content-type": "application/json"}
     async with httpx.AsyncClient(timeout=180) as client:
