@@ -191,6 +191,25 @@ class MiniKnowledgeBase:
     def ingest_uploaded_file(self, owner_id: str, dest_path: Path) -> tuple[int, int]:
         return self.ingest_path(owner_id, str(dest_path))
 
+    def ingest_text_memory(self, owner_id: str, text: str, source_tag: str = "memory") -> int:
+        """把一段纯文本直接切块写入 KB（不落盘为独立文件）。"""
+        raw = (text or "").strip()
+        if not raw:
+            return 0
+        if owner_id not in self._by_owner:
+            self._by_owner[owner_id] = []
+        parts = _chunk_text(raw, self.chunk_size, self.overlap)
+        n = 0
+        tag = re.sub(r"[^\w\-.]", "_", source_tag)[:80] or "note"
+        for idx, part in enumerate(parts):
+            h = hashlib.sha1(f"{owner_id}:{tag}:{idx}:{part}".encode()).hexdigest()
+            self._by_owner[owner_id].append(
+                {"chunk_id": h, "source_path": f"<{tag}>", "text": part, "vector": _to_tfidf(part)}
+            )
+            n += 1
+        self._save()
+        return n
+
 
 def _memory_path(companion_dir: Path, owner_id: str) -> Path:
     safe = re.sub(r"[^\w\-.]", "_", owner_id)[:80]
@@ -367,12 +386,16 @@ def build_context_block(
     owner_id: str,
     user_text: str,
     *,
+    retrieval_query: str | None = None,
+    multimodal: bool = False,
     kb_top_k: int = 6,
     web_top_k: int = 5,
     web_enabled: bool = True,
 ) -> str:
     mem = load_memory(companion_dir, owner_id)
     lines: list[str] = []
+    rq = (retrieval_query if retrieval_query is not None else user_text) or ""
+    rq = rq.strip() or (user_text or "").strip()
 
     lines.append(
         "【性格记忆】" + str(mem.get("personality_core") or CHARACTER_NOTES_DEFAULT)
@@ -406,14 +429,15 @@ def build_context_block(
         lines.append("【最近说过】" + " | ".join(recap))
 
     if kb:
-        hits = kb.search(owner_id, user_text, top_k=kb_top_k)
+        hits = kb.search(owner_id, rq, top_k=kb_top_k)
         if hits:
             lines.append("【知识库】")
             for h in hits:
                 lines.append(f"- ({h['source']}) {h['text'][:500]}")
 
-    if web_enabled and should_web_search(user_text):
-        ws = web_search(user_text, max_results=web_top_k)
+    if web_enabled and should_web_search(user_text, multimodal=multimodal):
+        q_web = rq if len(rq) >= 6 else user_text
+        ws = web_search(q_web, max_results=web_top_k)
         if ws:
             lines.append("【联网摘要】")
             for w in ws:
@@ -424,13 +448,16 @@ def build_context_block(
     return "\n".join(lines)
 
 
-def should_web_search(user_text: str) -> bool:
-    """明确要查资料时才联网，减少日常聊天被拖慢。"""
+def should_web_search(user_text: str, *, multimodal: bool = False) -> bool:
+    """需要事实/资料时联网；带图或视频帧时略放宽，方便「自己接着搜」。"""
     t = user_text.strip()
-    if len(t) < 6:
+    if multimodal and len(t) < 6:
+        return True
+    if len(t) < 4:
         return False
     if re.search(
         r"(搜一下|搜索|帮我搜|查一下|网上查查?|去网上|浏览器|谷歌|必应|百度一下"
+        r"|全世界|全球|国外|海外|国际新闻|外媒"
         r"|新闻|维基|百科|股价|股指|涨停|天气预报|气温|台风|地震"
         r"|汇率|美元兑|实时数据|排名榜|赛程|比分|奥运会|官网|文档\s*下载"
         r"|怎么安装|如何安装|安装教程|报错|错误码|版本号|release|docker hub)",
@@ -440,4 +467,56 @@ def should_web_search(user_text: str) -> bool:
         return True
     if re.search(r"(今天|现在|今年).{0,6}(几号|星期几|农历|天气)", t):
         return True
+    if len(t) >= 10 and re.search(
+        r"(怎么|如何|为什么|是什么|啥是|哪个|哪些|多少钱|价格|推荐吗|靠谱吗"
+        r"|最新|教程|对比|区别|原理|标准|法规|政策|数据|统计)",
+        t,
+    ):
+        return True
+    if multimodal and len(t) >= 8 and not re.search(
+        r"^(在吗|在么|嗯|哦|好|想你|抱抱|老婆|老公|小涵|干嘛|早|晚安)[…!！?？。.~\s]*$",
+        t,
+    ):
+        return True
     return False
+
+
+def build_retrieval_query_from_messages(messages: list) -> tuple[str, bool]:
+    """从最后一轮 user 消息拼检索用 query；multimodal 表示含图/图链。"""
+    payload = None
+    for m in reversed(messages or []):
+        if m.get("role") == "user":
+            payload = m.get("content")
+            break
+    if payload is None:
+        return "", False
+    if isinstance(payload, str):
+        return payload.strip(), False
+    if not isinstance(payload, list):
+        return "", False
+    texts: list[str] = []
+    has_image = False
+    for p in payload:
+        if not isinstance(p, dict):
+            continue
+        if p.get("type") == "text":
+            texts.append(p.get("text") or "")
+        elif p.get("type") == "image_url":
+            has_image = True
+    s = " ".join(texts).strip()
+    extra: list[str] = []
+    if has_image:
+        extra.append("附图画面 场景 人物 物体 外观 可能相关实体")
+    if re.search(r"视频|截帧|一帧|画面里", s):
+        extra.append("视频镜头 动作 环境")
+    if extra:
+        s = (s + " " + " ".join(extra)).strip()
+    return s, has_image or bool(re.search(r"视频|截帧|一帧", s))
+
+
+def append_kb_note(kb: MiniKnowledgeBase, owner_id: str, text: str, source_tag: str = "assistant_kb") -> int:
+    """把助手产出的 ```kb 文本追加为虚拟文档并入库。"""
+    raw = (text or "").strip()
+    if not raw:
+        return 0
+    return kb.ingest_text_memory(owner_id, raw, source_tag)

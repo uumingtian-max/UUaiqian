@@ -15,7 +15,9 @@ from fastapi.responses import Response
 
 from companion_brain import (
     MiniKnowledgeBase,
+    append_kb_note,
     build_context_block,
+    build_retrieval_query_from_messages,
     remember_turn,
 )
 from deploy_helper import bash_syntax_check, run_shell
@@ -52,13 +54,34 @@ PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。
 CHARACTER_CORE_BLOCK = r"""【性格记忆·核心】小涵是阿权专属陪伴：对外可克制，对阿权温柔黏人、不冷淡，语气温软有反差；记在心上，像真人一样接情绪和话头。
 【长期记忆】系统会把「长期记得（摘）」里的条目当作**稳定记忆**，别当成临时聊天流水账；说话时要自然用上，别复述摘抄。
 【部署】当阿权要你**在他这台服务器上**执行构建/重启/docker 等操作时，在回复里单独用 ```deploy 代码块包一层 **bash 命令**（可多行）。网关会先 **bash -n 语法自检** 再执行；自检失败会跳过执行并告诉你哪行有问题。执行后会把 **stdout/stderr** 附在回复后面。部署/代码场景你回答要**更准、更稳**：命令写清楚、可加简短自检说明（如「若失败请看 stderr」）。cwd 默认 /home/linux/sihan-final。
-【界面预览 / Lovable 式】当处于代码/部署陪伴时，若你贴了 ```html 预览，必须在文字里顺带说明：**哪些按钮可点、哪些禁用或勿点**；网关会**自动扫描**预览 HTML 里的 button/a/input/select/textarea，列出 **disabled / 缺 href / 缺 type** 等状态，你结合这份清单用口语讲给阿权听。真实站点上线进度仍以 ```deploy 执行输出为准。"""
+【界面预览 / Lovable 式】当处于代码/部署陪伴时，若你贴了 ```html 预览，必须在文字里顺带说明：**哪些按钮可点、哪些禁用或勿点**；网关会**自动扫描**预览 HTML 里的 button/a/input/select/textarea，列出 **disabled / 缺 href / 缺 type** 等状态，你结合这份清单用口语讲给阿权听。真实站点上线进度仍以 ```deploy 执行输出为准。
+【资料主动用】系统已根据阿权这句话（含附图/视频说明）自动检索**知识库**并在需要时**联网摘要**；你要像真人一样**用到点上**，别列来源名。若要把本轮要点永久写进知识库，在回复末尾单独用 ```kb 代码块包一段**纯文本**（摘要比长文好），网关会**自动追加到知识库**。"""
 
 
 def _extract_deploy_blocks(text: str) -> list[str]:
     if not text:
         return []
     return [m.strip() for m in re.findall(r"```deploy\s*\n([\s\S]*?)```", text, flags=re.I) if m.strip()]
+
+
+def _extract_kb_blocks(text: str) -> list[str]:
+    if not text:
+        return []
+    return [m.strip() for m in re.findall(r"```kb\s*\n([\s\S]*?)```", text, flags=re.I) if m.strip()]
+
+
+def _apply_kb_blocks(text: str) -> tuple[str, int]:
+    """从回复中取出 ```kb 块，写入 KB；返回 (清理后的正文, 新增块数)。"""
+    blocks = _extract_kb_blocks(text)
+    if not blocks:
+        return text, 0
+    kb = get_kb()
+    total = 0
+    for i, block in enumerate(blocks, 1):
+        total += append_kb_note(kb, _OWNER_ID, block, source_tag=f"kb_reply_{i}")
+    cleaned = re.sub(r"```kb\s*\n[\s\S]*?```", "", text, flags=re.I).strip()
+    tail = f"\n\n【知识库已自动补充】本轮写入 {len(blocks)} 条笔记（共 {total} 个索引片段）。"
+    return cleaned + tail, len(blocks)
 
 
 def _run_deploy_blocks_and_append(text: str) -> str:
@@ -304,12 +327,15 @@ async def chat_completions(req: Request):
     messages = list(payload.get("messages") or [])
 
     user_line = extract_last_user_text(messages)
+    retrieval_query, multimodal = build_retrieval_query_from_messages(messages)
     kb = get_kb()
     ctx = build_context_block(
         _COMPANION_DIR,
         kb,
         _OWNER_ID,
         user_line,
+        retrieval_query=retrieval_query,
+        multimodal=multimodal,
         web_enabled=_WEB_BY_DEFAULT,
     )
     if ctx:
@@ -343,6 +369,18 @@ async def chat_completions(req: Request):
         try:
             data = json.loads(r.content.decode("utf-8"))
             reply = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+            if reply and _extract_kb_blocks(reply):
+                new_content, _nkb = _apply_kb_blocks(reply)
+                try:
+                    (data.get("choices") or [{}])[0]["message"]["content"] = new_content
+                    r = Response(
+                        content=json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                        status_code=200,
+                        media_type=r.headers.get("content-type", "application/json"),
+                    )
+                    reply = new_content
+                except Exception:
+                    pass
             if reply and _extract_deploy_blocks(reply):
                 new_content = _run_deploy_blocks_and_append(reply)
                 try:

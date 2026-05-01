@@ -28,7 +28,8 @@
     .dot{display:inline-block;width:8px;height:8px;border-radius:999px;background:#4cff97;box-shadow:0 0 12px #4cff97;margin-right:5px;vertical-align:middle}
     .dot.warn{background:#ffc14a;box-shadow:0 0 10px #ffc14a}
     .dot.bad{background:#ff5c5c;box-shadow:0 0 10px #ff5c5c}
-    .reply{position:absolute;left:12px;right:12px;bottom:150px;z-index:8;background:rgba(15,22,38,.88);backdrop-filter:blur(16px);border:1px solid rgba(180,210,255,.45);border-radius:16px;padding:14px 16px;line-height:1.6;font-size:15px;max-height:42vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+    .reply{position:absolute;left:12px;right:12px;bottom:150px;z-index:8;background:rgba(15,22,38,.88);backdrop-filter:blur(16px);border:1px solid rgba(180,210,255,.45);border-radius:16px;padding:14px 16px;line-height:1.6;font-size:15px;max-height:42vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.7);opacity:1;transition:opacity 90s linear}
+    .reply.fade-out{opacity:0;pointer-events:none}
     body.code-mode .reply{bottom:140px;max-height:38vh;font-size:14px}
     .panel{position:absolute;left:12px;right:12px;bottom:12px;z-index:9;background:rgba(8,14,24,.85);backdrop-filter:blur(14px);border:1px solid rgba(140,170,230,.4);border-radius:14px;padding:10px 12px;box-shadow:0 6px 24px rgba(0,0,0,.7)}
     .row{display:flex;gap:8px;align-items:center}
@@ -158,6 +159,9 @@ let sending = false;
 let conversationHistory = [];
 let lastReplyRaw = '';
 let healthTimer = null;
+/** 对话气泡约 1.5 分钟后渐隐至透明（CSS transition ~90s） */
+let replyFadeTimer = null;
+const REPLY_FADE_AFTER_MS = 10000;
 
 /** text = 小涵回复也显示在气泡里；voice = 只播语音，不显示她的正文（仍可向模型要内容用于 TTS） */
 let interactionMode = localStorage.getItem(LS_INTERACTION) || 'text';
@@ -268,7 +272,20 @@ function applyCommandsFromUser(text) {
 }
 
 function setReply(html) {
-  document.getElementById('reply').innerHTML = html;
+  const el = document.getElementById('reply');
+  el.classList.remove('fade-out');
+  void el.offsetWidth;
+  el.innerHTML = html;
+  scheduleReplyFade();
+}
+
+function scheduleReplyFade() {
+  const el = document.getElementById('reply');
+  if (replyFadeTimer) clearTimeout(replyFadeTimer);
+  el.classList.remove('fade-out');
+  replyFadeTimer = setTimeout(() => {
+    el.classList.add('fade-out');
+  }, REPLY_FADE_AFTER_MS);
 }
 
 function applyLayout() {
@@ -280,7 +297,8 @@ function buildSystemPrompt() {
 
 说话像真人：该短就短，该多说两句就多说两句，但别啰嗦堆套话、别车轱辘；别 1.2.3. 分点、别把对方整句复读一遍。
 表情 / 动作用很短的中文括号给屏幕上看（笑）（愣一下），别整段都是括号。
-对方发图或发视频（界面会截一帧当画面）：先随口一句，再具体说看到啥；视频说明这是某一帧。
+对方发**文字 / 图 / 视频截帧 / 知识库文件**时：像真人接话；系统已**自动**用这些内容去检索知识库、并在需要时联网摘要，你要自然用上别报菜名。
+若本轮有值得长期留下的话，可在回复里单独用 \`\`\`kb 包一小段纯文本摘要，会**自动写入知识库**（平时别滥用）。
 聊到住哪里、在哪见面时，**自然带一点场景词**：如酒店套房/客房、庄园露台/花园草地等（不用刻意汇报），方便界面跟随氛围换场景。`;
 
   if (layoutMode === 'code') {
@@ -288,7 +306,7 @@ function buildSystemPrompt() {
 
 说话像真人：该短就短，该多说两句就多说两句，但别啰嗦堆套话、别车轱辘；别 1.2.3. 分点、别把对方整句复读一遍。
 表情 / 动作用很短的中文括号给屏幕上看（笑）（愣一秒），别整段都是括号。
-对方发图或视频截帧：先随口一句，再具体说看到啥。`;
+对方发图或视频截帧：先随口一句，再具体说看到啥。系统会**自动**用你的话+画面去检索知识库、需要时联网；别念「搜索结果」。值得记时用 \`\`\`kb 小段摘要即可入库。
     return baseCode + `
 
 【当前：代码/部署陪伴模式】阿权不太会看代码。先用口语讲清「要点哪里、哪个先别动」；需要时再补一点技术细节，别写成长篇文档。
@@ -427,8 +445,11 @@ async function buildUserContent(text) {
 function stripTechnicalTailForTTS(text) {
   if (!text) return '';
   let s = text.replace(/```deploy\s*[\s\S]*?```/gi, '');
+  s = s.replace(/```kb\s*[\s\S]*?```/gi, '');
   const cut = s.indexOf('【服务器执行结果】');
   if (cut >= 0) s = s.slice(0, cut);
+  const cutKb = s.indexOf('【知识库已自动补充】');
+  if (cutKb >= 0) s = s.slice(0, cutKb);
   const cut2 = s.indexOf('【预览控件');
   if (cut2 >= 0) s = s.slice(0, cut2);
   return s.trim();
@@ -794,6 +815,7 @@ document.getElementById('userText').addEventListener('keydown', (e) => {
 
 applyLayout();
 scheduleHealthPing();
+scheduleReplyFade();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') pingHealthOnce();
 });
