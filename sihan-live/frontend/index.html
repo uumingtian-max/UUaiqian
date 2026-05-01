@@ -28,18 +28,33 @@
     .dot{display:inline-block;width:8px;height:8px;border-radius:999px;background:#4cff97;box-shadow:0 0 12px #4cff97;margin-right:5px;vertical-align:middle}
     .dot.warn{background:#ffc14a;box-shadow:0 0 10px #ffc14a}
     .dot.bad{background:#ff5c5c;box-shadow:0 0 10px #ff5c5c}
-    .reply{position:absolute;left:12px;right:12px;bottom:150px;z-index:8;background:rgba(15,22,38,.88);backdrop-filter:blur(16px);border:1px solid rgba(180,210,255,.45);border-radius:16px;padding:14px 16px;line-height:1.6;font-size:15px;max-height:42vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.7);opacity:1;transition:opacity 90s linear}
+    .reply{position:absolute;left:14px;right:14px;bottom:178px;z-index:8;max-height:40vh;overflow-y:auto;opacity:1;transition:opacity 90s linear;border-radius:20px;padding:0;box-shadow:0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,120,180,.22);background:linear-gradient(165deg, rgba(22,18,32,.92) 0%, rgba(12,14,26,.88) 100%);backdrop-filter:blur(20px) saturate(1.2);-webkit-backdrop-filter:blur(20px) saturate(1.2)}
+    .reply-inner{padding:16px 18px 14px;font-size:15px;line-height:1.65;color:#f0f4fc;text-shadow:0 1px 2px rgba(0,0,0,.35)}
     .reply.fade-out{opacity:0;pointer-events:none}
-    body.code-mode .reply{bottom:140px;max-height:38vh;font-size:14px}
-    .panel{position:absolute;left:12px;right:12px;bottom:12px;z-index:9;background:rgba(8,14,24,.85);backdrop-filter:blur(14px);border:1px solid rgba(140,170,230,.4);border-radius:14px;padding:10px 12px;box-shadow:0 6px 24px rgba(0,0,0,.7)}
-    .row{display:flex;gap:8px;align-items:center}
-    .txt{flex:1;height:48px;border:1px solid rgba(180,200,255,0.4);background:rgba(15,22,38,0.95);color:#fff;border-radius:12px;padding:0 14px;font-size:15px}
-    .send{height:48px;min-width:104px;border:0;border-radius:12px;background:linear-gradient(180deg,#ff4fa8,#d9166a);color:#fff;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 3px 14px rgba(255,47,146,.45), inset 0 1px 0 rgba(255,255,255,.25)}
+    .reply .bubble-label{font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:rgba(180,210,255,.75);margin-bottom:6px}
+    .reply .bubble-you{color:#ffb8d9}
+    .reply .bubble-her{color:#b8d9ff}
+    .reply hr.bubble-sep{border:0;height:1px;margin:12px 0;background:linear-gradient(90deg, transparent, rgba(255,140,200,.35), transparent)}
+    body.code-mode .reply{bottom:188px;max-height:32vh}
+    body.code-mode .reply-inner{font-size:14px}
+    .panel{position:absolute;left:14px;right:14px;bottom:14px;z-index:9;border-radius:20px;padding:12px 14px;background:linear-gradient(180deg, rgba(16,20,36,.94), rgba(8,10,20,.92));backdrop-filter:blur(18px);box-shadow:0 8px 32px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);border:1px solid rgba(140,170,255,.28)}
+    .row{display:flex;gap:10px;align-items:stretch}
+    .txt{flex:1;min-height:50px;max-height:120px;border:1px solid rgba(120,150,220,.35);background:rgba(8,12,24,.75);color:#fff;border-radius:14px;padding:12px 14px;font-size:15px;line-height:1.45;resize:none;font-family:inherit;outline:none;box-shadow:inset 0 2px 8px rgba(0,0,0,.25)}
+    .txt::placeholder{color:rgba(200,210,235,.45)}
+    .txt:focus{border-color:rgba(255,120,180,.5);box-shadow:inset 0 2px 8px rgba(0,0,0,.25), 0 0 0 2px rgba(255,100,160,.15)}
+    .send-col{display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+    .micBtn{width:52px;min-height:50px;border-radius:14px;border:1px solid rgba(140,180,255,.4);background:linear-gradient(180deg, rgba(45,55,95,.95), rgba(28,35,65,.98));color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.35);transition:transform .12s, border-color .15s, box-shadow .15s;padding:0}
+    .micBtn:active{transform:scale(.96)}
+    .micBtn.listening{border-color:#ff6b9d;background:linear-gradient(180deg, rgba(90,40,70,.95), rgba(50,25,45,.98));box-shadow:0 0 20px rgba(255,80,140,.35)}
+    .micHint{font-size:10px;color:rgba(180,200,255,.55);text-align:center;max-width:52px;line-height:1.2}
+    .send{min-height:50px;min-width:108px;border:0;border-radius:14px;background:linear-gradient(180deg,#ff5eb3,#e01878);color:#fff;font-size:15px;font-weight:650;cursor:pointer;box-shadow:0 4px 18px rgba(255,60,140,.4), inset 0 1px 0 rgba(255,255,255,.22)}
     .send:disabled{opacity:0.55;cursor:not-allowed;box-shadow:none}
-    .sub{margin-top:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px}
-    .uploadBtn{display:inline-flex;align-items:center;justify-content:center;height:38px;padding:0 14px;border:2px solid rgba(200,220,255,.75);border-radius:10px;background:rgba(40,55,95,.95);cursor:pointer;font-size:13px;font-weight:500;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+    .sub{margin-top:10px;display:flex;justify-content:flex-start;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+    .uploadBtn{display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 16px;border:1px solid rgba(170,200,255,.45);border-radius:12px;background:rgba(35,45,78,.9);cursor:pointer;font-size:13px;font-weight:500;color:#e8eeff;box-shadow:0 2px 10px rgba(0,0,0,.3);transition:background .15s,border-color .15s}
+    .uploadBtn:hover{border-color:rgba(255,160,200,.55);background:rgba(50,40,70,.85)}
     .uploadBtn:active{transform:scale(.98)}
-    #fileName{font-size:12px;color:#c8daf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
+    .file-tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:1;min-width:0}
+    .file-chip{font-size:11px;color:rgba(220,230,255,.9);background:rgba(60,80,130,.45);border:1px solid rgba(150,180,255,.25);border-radius:999px;padding:4px 10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #mediaFile{display:none}
     #audioPlayer{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 
@@ -57,10 +72,16 @@
       #appRoot{flex-direction:column;}
       body.code-mode .stage{flex:0 0 42vh;min-height:220px;border-right:none;border-bottom:1px solid rgba(140,170,230,.35)}
       body.code-mode #studioColumn{flex:1 1 auto;min-height:0;border-left:none;border-top:1px solid #30363d}
-      body.code-mode .reply{bottom:132px;max-height:28vh;font-size:14px}
-      body.code-mode .panel{bottom:8px;padding:8px}
+      body.code-mode .reply{bottom:168px;max-height:34vh}
+      body.code-mode .panel{bottom:12px;padding:10px 12px}
       .sub{flex-wrap:wrap}
       #fileName,#kbFileName{max-width:100%}
+    }
+    @media (max-width: 520px) {
+      .row{flex-wrap:wrap}
+      .txt{flex:1 1 100%;min-height:48px;order:1}
+      .micBtn{order:2;width:52px}
+      .send{order:3;flex:1;min-width:0}
     }
   </style>
 </head>
@@ -77,18 +98,21 @@
       <div class="chip" title="聊天里提到酒店/庄园等会自动换天光；固定场景用网址加 ?hdr= 或 localStorage sihan_hdr_url">随聊换景</div>
     </div>
 
-    <div id="reply" class="reply">在呢，想说什么发我就好～</div>
+    <div id="reply" class="reply"><div class="reply-inner">在呢，想说什么发我就好～</div></div>
 
     <div class="panel">
       <div class="row">
-        <input id="userText" class="txt" placeholder="想说什么……（说「代码模式」可横屏）" autocomplete="off" />
+        <textarea id="userText" class="txt" rows="2" placeholder="打字，或点 🎤 说话…（说「代码模式」可横屏）"></textarea>
+        <button type="button" id="micBtn" class="micBtn" title="点击开始/停止语音识别（需浏览器允许麦克风）">🎤</button>
         <button id="sendBtn" class="send" onclick="sendInteraction(event)">发送</button>
       </div>
       <div class="sub">
         <button type="button" class="uploadBtn" onclick="pickMedia()">图/视频</button>
         <button type="button" class="uploadBtn" onclick="pickKbFile()" title="任意格式，入库后可被自动检索">知识库</button>
-        <div id="fileName">媒体未选</div>
-        <div id="kbFileName">文档未选</div>
+        <div class="file-tags" id="fileTags">
+          <span class="file-chip" id="fileName">媒体未选</span>
+          <span class="file-chip" id="kbFileName">文档未选</span>
+        </div>
       </div>
     </div>
 
@@ -273,9 +297,15 @@ function applyCommandsFromUser(text) {
 
 function setReply(html) {
   const el = document.getElementById('reply');
+  let inner = el.querySelector('.reply-inner');
+  if (!inner) {
+    inner = document.createElement('div');
+    inner.className = 'reply-inner';
+    el.appendChild(inner);
+  }
   el.classList.remove('fade-out');
   void el.offsetWidth;
-  el.innerHTML = html;
+  inner.innerHTML = html;
   scheduleReplyFade();
 }
 
@@ -286,6 +316,15 @@ function scheduleReplyFade() {
   replyFadeTimer = setTimeout(() => {
     el.classList.add('fade-out');
   }, REPLY_FADE_AFTER_MS);
+}
+
+function bubbleYou(text) {
+  const t = escapeHtml(text || '');
+  return `<div class="bubble-label bubble-you">你</div><div>${t}</div>`;
+}
+
+function bubbleHer(htmlBody) {
+  return `<div class="bubble-label bubble-her">小涵</div><div>${htmlBody}</div>`;
 }
 
 function applyLayout() {
@@ -306,7 +345,7 @@ function buildSystemPrompt() {
 
 说话像真人：该短就短，该多说两句就多说两句，但别啰嗦堆套话、别车轱辘；别 1.2.3. 分点、别把对方整句复读一遍。
 表情 / 动作用很短的中文括号给屏幕上看（笑）（愣一秒），别整段都是括号。
-对方发图或视频截帧：先随口一句，再具体说看到啥。系统会**自动**用你的话+画面去检索知识库、需要时联网；别念「搜索结果」。值得记时用 \`\`\`kb 小段摘要即可入库。
+对方发图或视频截帧：先随口一句，再具体说看到啥。系统会**自动**用你的话+画面去检索知识库、需要时联网；别念「搜索结果」。值得记时用 \`\`\`kb 小段摘要即可入库。`;
     return baseCode + `
 
 【当前：代码/部署陪伴模式】阿权不太会看代码。先用口语讲清「要点哪里、哪个先别动」；需要时再补一点技术细节，别写成长篇文档。
@@ -666,9 +705,9 @@ async function sendInteraction(e) {
   }
 
   if (interactionMode === 'voice') {
-    setReply(`你：${escapeHtml(userMsgPreview)}`);
+    setReply(bubbleYou(userMsgPreview));
   } else {
-    setReply(`你：${userMsgPreview}<br><br>小涵：嗯…`);
+    setReply(`${bubbleYou(userMsgPreview)}<hr class="bubble-sep">${bubbleHer('嗯…')}`);
   }
 
   try {
@@ -729,10 +768,10 @@ async function sendInteraction(e) {
     renderStudio(reply);
 
     if (interactionMode === 'voice') {
-      setReply(`你：${escapeHtml(userMsgPreview)}`);
+      setReply(bubbleYou(userMsgPreview));
     } else {
       const safe = reply.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-      setReply(`你：${userMsgPreview}<br><br><strong>小涵：</strong><br>${safe}`);
+      setReply(`${bubbleYou(userMsgPreview)}<hr class="bubble-sep">${bubbleHer(safe)}`);
     }
 
     let ttsIn = humanizeText(stripStageDirectionsForTTS(reply));
@@ -765,9 +804,9 @@ async function sendInteraction(e) {
       ? '这次等太久了，我再听…你再发一次，或者说短一点我回快些。'
       : '这边断了一下或网络不稳，你点再发一次就好～';
     if (interactionMode === 'voice') {
-      setReply(`你：${escapeHtml(userMsgPreview)}`);
+      setReply(bubbleYou(userMsgPreview));
     } else {
-      setReply(`你：${userMsgPreview}<br><br>小涵：${hint}`);
+      setReply(`${bubbleYou(userMsgPreview)}<hr class="bubble-sep">${bubbleHer(escapeHtml(hint))}`);
     }
     setConnUi('bad', '未连接');
   } finally {
@@ -775,6 +814,8 @@ async function sendInteraction(e) {
     btn.disabled = false;
     btn.textContent = '发送';
     input.value = '';
+    input.style.height = 'auto';
+    stopSpeechIfAny();
   }
 }
 
@@ -809,9 +850,93 @@ document.getElementById('kbFile').addEventListener('change', (e) => {
 });
 
 document.getElementById('userText').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendInteraction(e);
+  }
+});
+
+function autoResizeTextarea(el) {
+  if (!el || el.tagName !== 'TEXTAREA') return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+}
+
+document.getElementById('userText').addEventListener('input', (e) => {
+  autoResizeTextarea(e.target);
+});
+
+let speechRec = null;
+let speechOn = false;
+
+function ensureSpeechRec() {
+  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Ctor) return null;
+  if (!speechRec) {
+    speechRec = new Ctor();
+    speechRec.lang = 'zh-CN';
+    speechRec.interimResults = true;
+    speechRec.continuous = true;
+    speechRec.maxAlternatives = 1;
+  }
+  return speechRec;
+}
+
+function stopSpeechIfAny() {
+  const mic = document.getElementById('micBtn');
+  if (speechRec && speechOn) {
+    try { speechRec.stop(); } catch (err) { /* ignore */ }
+  }
+  speechOn = false;
+  if (mic) mic.classList.remove('listening');
+}
+
+document.getElementById('micBtn').addEventListener('click', () => {
+  const ta = document.getElementById('userText');
+  const mic = document.getElementById('micBtn');
+  const rec = ensureSpeechRec();
+  if (!rec) {
+    alert('当前浏览器不支持网页语音识别。可用 Chrome / Edge 打开，或用手机输入法的语音输入。');
+    return;
+  }
+  if (speechOn) {
+    stopSpeechIfAny();
+    return;
+  }
+  ta.dataset.voiceBase = (ta.value || '').trim();
+  rec.onresult = (ev) => {
+    let addFinal = '';
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      const t = r[0].transcript;
+      if (r.isFinal) addFinal += t;
+      else interim += t;
+    }
+    if (addFinal) {
+      const b = (ta.dataset.voiceBase || '').trim();
+      ta.dataset.voiceBase = (b ? b + ' ' : '') + addFinal.trim();
+    }
+    const base = (ta.dataset.voiceBase || '').trim();
+    ta.value = base + (interim ? (base ? ' ' : '') + interim : '');
+    autoResizeTextarea(ta);
+  };
+  rec.onerror = (ev) => {
+    if (ev.error === 'aborted' || ev.error === 'no-speech') return;
+    stopSpeechIfAny();
+  };
+  rec.onend = () => {
+    speechOn = false;
+    mic.classList.remove('listening');
+  };
+  try {
+    rec.start();
+    speechOn = true;
+    mic.classList.add('listening');
+  } catch (err) {
+    speechOn = false;
+    mic.classList.remove('listening');
+    alert('无法启动麦克风，请检查权限或使用 https 访问。');
   }
 });
 
