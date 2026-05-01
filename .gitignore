@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local snapshots / remote copies (keep repo lean)
+final_*_snapshot.txt
+remote_home__linux__sihan-final__*
