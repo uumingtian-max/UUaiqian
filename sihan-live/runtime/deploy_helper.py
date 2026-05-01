@@ -10,6 +10,40 @@ _DEFAULT_CWD = os.environ.get("SIHAN_DEPLOY_CWD", "/home/linux/sihan-final")
 _DEFAULT_TIMEOUT = int(os.environ.get("SIHAN_DEPLOY_TIMEOUT", "180"))
 
 
+def bash_syntax_check(script: str) -> tuple[bool, str]:
+    """bash -n 语法检查，不执行。"""
+    s = (script or "").strip()
+    if not s:
+        return False, "empty script"
+    import tempfile
+
+    path = ""
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False, encoding="utf-8") as tf:
+            tf.write(s)
+            path = tf.name
+        proc = subprocess.run(
+            ["bash", "-n", path],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        err = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+        if proc.returncode != 0:
+            return False, err or f"bash -n exit {proc.returncode}"
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "bash -n timeout"
+    except OSError as e:
+        return False, str(e)
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
 def resolve_working_dir(cwd: str | None) -> Path:
     if cwd and str(cwd).strip():
         p = Path(str(cwd).strip()).expanduser().resolve()

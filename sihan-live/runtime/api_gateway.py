@@ -18,7 +18,7 @@ from companion_brain import (
     build_context_block,
     remember_turn,
 )
-from deploy_helper import run_shell
+from deploy_helper import bash_syntax_check, run_shell
 
 LLAMA_BASE = os.environ.get("SIHAN_LLAMA_BASE", "http://127.0.0.1:8002").rstrip("/")
 TTS_BASE = os.environ.get("SIHAN_TTS_BASE", "http://127.0.0.1:9880").rstrip("/")
@@ -30,6 +30,8 @@ _KB_PATH = Path(os.environ.get("SIHAN_KB_PATH", _COMPANION_DIR / "knowledge_stor
 _KB_IMPORT = Path(os.environ.get("SIHAN_KB_IMPORT", _COMPANION_DIR / "kb_import"))
 _KB_SEED = Path(__file__).resolve().parent / "kb_seed"
 _WEB_BY_DEFAULT = os.environ.get("SIHAN_WEB_SEARCH", "1") not in ("0", "false", "no")
+_LLAMA_TIMEOUT_CHAT = int(os.environ.get("SIHAN_LLAMA_TIMEOUT", "180"))
+_LLAMA_TIMEOUT_CODE = int(os.environ.get("SIHAN_LLAMA_TIMEOUT_CODE", "540"))
 
 # 单次助手回复上限；网关会把客户端更大的 max_tokens 压到「自动档位」以下
 _CODE_MAX_TOKENS = int(os.environ.get("SIHAN_CODE_MAX_TOKENS", "720"))
@@ -47,7 +49,7 @@ PERSONA_SYSTEM = """你叫赵思涵，小名小涵。始终用中文。
 若系统消息里带了伴读上下文，自然带一句就行，不要整段照抄，别提「搜索结果」这类词。"""
 
 CHARACTER_CORE_BLOCK = """【性格记忆·核心】小涵是阿权专属陪伴：对外可克制，对阿权温柔黏人、不冷淡，语气温软有反差；记在心上，像真人一样接情绪和话头。
-【部署】当阿权要你**在他这台服务器上**执行构建/重启/docker 等操作时，在回复里单独用 ```deploy 代码块包一层 **bash 命令**（可多行），网关会**按原样在服务器上执行**，并把输出附在回复后面。cwd 默认 /home/linux/sihan-final，可加注释说明风险。"""
+【部署】当阿权要你**在他这台服务器上**执行构建/重启/docker 等操作时，在回复里单独用 ```deploy 代码块包一层 **bash 命令**（可多行）。网关会先 **bash -n 语法自检** 再执行；自检失败会跳过执行并告诉你哪行有问题。执行后会把 **stdout/stderr** 附在回复后面。部署/代码场景你回答要**更准、更稳**：命令写清楚、可加简短自检说明（如「若失败请看 stderr」）。cwd 默认 /home/linux/sihan-final。"""
 
 
 def _extract_deploy_blocks(text: str) -> list[str]:
@@ -62,15 +64,22 @@ def _run_deploy_blocks_and_append(text: str) -> str:
         return text
     summaries: list[str] = []
     for i, block in enumerate(blocks, 1):
+        ok_syn, syn_err = bash_syntax_check(block)
+        if not ok_syn:
+            summaries.append(
+                f"块{i}: 【已跳过执行】bash 语法自检未通过（bash -n）\n{syn_err}\n"
+                f"请让小涵修正 deploy 块中的命令后再试。"
+            )
+            continue
         res = run_shell(block)
         ok = bool(res.get("ok"))
         rc = res.get("returncode", -1)
         out = str(res.get("stdout") or "")[-8000:]
         err = str(res.get("stderr") or "")[-4000:]
         cwd = res.get("cwd", "")
-        line = f"块{i}: exit={rc} cwd={cwd}\nstdout:\n{out}\nstderr:\n{err}"
+        line = f"块{i}: 【语法自检通过】exit={rc} cwd={cwd}\nstdout:\n{out}\nstderr:\n{err}"
         if not ok:
-            line = f"（失败）{line}"
+            line = f"（命令已执行但失败）{line}"
         summaries.append(line)
     sep = "\n\n【服务器执行结果】\n" + "\n---\n".join(summaries)
     return text + sep
@@ -113,7 +122,7 @@ def _user_requests_code_mode(user_line: str) -> bool:
     return bool(
         re.search(
             r"(写代码|部署网站|部署项目|上线|构建|重启|systemctl|docker-compose|docker compose"
-            r"|代码模式|开发模式|前端|后端|docker|nginx|接口|报错|堆栈|shell|执行命令)",
+            r"|代码模式|开发模式|部署模式|代码部署|前端|后端|docker|nginx|接口|报错|堆栈|shell|执行命令)",
             t,
         )
     )
@@ -156,7 +165,25 @@ def _normalize_sampling(payload: dict[str, Any], *, code_mode: bool, user_line: 
 
     payload.setdefault("chat_template_kwargs", {"enable_thinking": False})
 
-    if not code_mode:
+    if code_mode:
+        # 代码/部署：偏低温度、收窄采样，换更稳输出（生成会更慢一些）
+        if "temperature" not in payload:
+            payload["temperature"] = 0.52
+        else:
+            try:
+                payload["temperature"] = min(float(payload["temperature"]), 0.58)
+            except (TypeError, ValueError):
+                payload["temperature"] = 0.52
+        tp = payload.get("top_p")
+        try:
+            payload["top_p"] = min(0.88, float(tp) if tp is not None else 0.88)
+        except (TypeError, ValueError):
+            payload["top_p"] = 0.88
+        if "frequency_penalty" not in payload:
+            payload["frequency_penalty"] = 0.12
+        if "presence_penalty" not in payload:
+            payload["presence_penalty"] = 0.06
+    else:
         if "temperature" not in payload:
             payload["temperature"] = 0.82
         if "frequency_penalty" not in payload:
@@ -274,8 +301,9 @@ async def chat_completions(req: Request):
     code_mode = _user_requests_code_mode(user_line)
     _normalize_sampling(payload, code_mode=code_mode, user_line=user_line)
 
+    llama_timeout = _LLAMA_TIMEOUT_CODE if code_mode else _LLAMA_TIMEOUT_CHAT
     headers = {"content-type": "application/json"}
-    async with httpx.AsyncClient(timeout=180) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(llama_timeout, connect=30.0)) as client:
         r = await client.post(
             f"{LLAMA_BASE}/v1/chat/completions",
             content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
