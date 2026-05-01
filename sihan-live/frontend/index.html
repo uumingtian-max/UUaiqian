@@ -102,8 +102,8 @@
 
     <div class="panel">
       <div class="row">
-        <textarea id="userText" class="txt" rows="2" placeholder="打字，或点 🎤 说话…（说「代码模式」可横屏）"></textarea>
-        <button type="button" id="micBtn" class="micBtn" title="点击开始/停止语音识别（需浏览器允许麦克风）">🎤</button>
+        <textarea id="userText" class="txt" rows="2" placeholder="打字或语音… 语音说完停约2秒会自动发（Shift+Enter 换行）"></textarea>
+        <button type="button" id="micBtn" class="micBtn" title="点一下说话，停句约2秒自动发送；再点一下也可立即发送">🎤</button>
         <button id="sendBtn" class="send" onclick="sendInteraction(event)">发送</button>
       </div>
       <div class="sub">
@@ -178,6 +178,8 @@ const LS_LAYOUT = 'sihan_layout_mode';
 let pendingMedia = null;
 let pendingKbFile = null;
 let lastKbIngestNote = '';
+let voiceAutoTimer = null;
+const VOICE_SILENCE_MS = 2000;
 let lastAudioUrl = null;
 let sending = false;
 let conversationHistory = [];
@@ -337,6 +339,7 @@ function buildSystemPrompt() {
 说话像真人：该短就短，该多说两句就多说两句，但别啰嗦堆套话、别车轱辘；别 1.2.3. 分点、别把对方整句复读一遍。
 表情 / 动作用很短的中文括号给屏幕上看（笑）（愣一下），别整段都是括号。
 对方发**文字 / 图 / 视频截帧 / 知识库文件**时：像真人接话；系统已**自动**用这些内容去检索知识库、并在需要时联网摘要，你要自然用上别报菜名。
+阿权可能**随时打断**（你还在语音里也行）：要像真聊天一样**接住他上一句、顺着下一句**，别从头背、别怪他打断。
 若本轮有值得长期留下的话，可在回复里单独用 \`\`\`kb 包一小段纯文本摘要，会**自动写入知识库**（平时别滥用）。
 聊到住哪里、在哪见面时，**自然带一点场景词**：如酒店套房/客房、庄园露台/花园草地等（不用刻意汇报），方便界面跟随氛围换场景。`;
 
@@ -349,7 +352,8 @@ function buildSystemPrompt() {
     return baseCode + `
 
 【当前：代码/部署陪伴模式】阿权不太会看代码。先用口语讲清「要点哪里、哪个先别动」；需要时再补一点技术细节，别写成长篇文档。
-若合适，用单独一段 \`\`\`html  包一小段可预览的静态页面示例（少用脚本，最好不要 script），方便他在右边预览框里看见样子。HTML 里加简短注释标「可点」「先别点」；**界面会自动列出预览里各按钮/链接的大致可用状态**，你要对着这份清单用白话讲清楚。`;
+若合适，用单独一段 \`\`\`html  包一小段可预览的静态页面示例（少用脚本，最好不要 script），方便他在右边预览框里看见样子。HTML 里加简短注释标「可点」「先别点」；**界面会自动列出预览里各按钮/链接的大致可用状态**，你要对着这份清单用白话讲清楚。
+他打断或改口时，自然接话，别车轱辘重复。`;
   }
   return base;
 }
@@ -674,6 +678,41 @@ async function playBlob(blob) {
   try { await audio.play(); return true; } catch (e) { return false; }
 }
 
+function stopAssistantSpeech() {
+  const audio = document.getElementById('audioPlayer');
+  try {
+    audio.pause();
+    audio.currentTime = 0;
+  } catch (e) { /* ignore */ }
+  if (lastAudioUrl) {
+    try { URL.revokeObjectURL(lastAudioUrl); } catch (e) {}
+    lastAudioUrl = null;
+  }
+  if (window.virtualAvatar) {
+    try { window.virtualAvatar.playPose('idle'); } catch (e) {}
+  }
+}
+
+function clearVoiceAutoSendTimer() {
+  if (voiceAutoTimer) {
+    clearTimeout(voiceAutoTimer);
+    voiceAutoTimer = null;
+  }
+}
+
+function scheduleVoiceAutoSend() {
+  clearVoiceAutoSendTimer();
+  voiceAutoTimer = setTimeout(() => {
+    voiceAutoTimer = null;
+    if (!speechOn || sending) return;
+    const ta = document.getElementById('userText');
+    const t = (ta.value || '').trim();
+    if (t.length < 1) return;
+    stopSpeechIfAny();
+    sendInteraction(null);
+  }, VOICE_SILENCE_MS);
+}
+
 function escapeHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -683,6 +722,10 @@ async function sendInteraction(e) {
   if (sending) return;
 
   const input = document.getElementById('userText');
+  clearVoiceAutoSendTimer();
+  stopAssistantSpeech();
+  stopSpeechIfAny();
+
   let text = (input.value || '').trim();
   if (!text && !pendingMedia && !pendingKbFile) text = '在吗？';
 
@@ -714,7 +757,7 @@ async function sendInteraction(e) {
     await ensureAvatar3DScene();
     const userContent = await buildUserContent(text);
     conversationHistory.push({ role: 'user', content: userContent });
-    if (conversationHistory.length > 14) conversationHistory.splice(0, conversationHistory.length - 14);
+    if (conversationHistory.length > 28) conversationHistory.splice(0, conversationHistory.length - 28);
 
     const VA = window.virtualAvatar;
     if (VA && typeof VA.applyLifeSceneFromConversation === 'function') {
@@ -884,6 +927,7 @@ function ensureSpeechRec() {
 
 function stopSpeechIfAny() {
   const mic = document.getElementById('micBtn');
+  clearVoiceAutoSendTimer();
   if (speechRec && speechOn) {
     try { speechRec.stop(); } catch (err) { /* ignore */ }
   }
@@ -901,6 +945,11 @@ document.getElementById('micBtn').addEventListener('click', () => {
   }
   if (speechOn) {
     stopSpeechIfAny();
+    const ta = document.getElementById('userText');
+    const t = (ta.value || '').trim();
+    if (t.length >= 1 && !sending) {
+      sendInteraction(null);
+    }
     return;
   }
   ta.dataset.voiceBase = (ta.value || '').trim();
@@ -920,14 +969,21 @@ document.getElementById('micBtn').addEventListener('click', () => {
     const base = (ta.dataset.voiceBase || '').trim();
     ta.value = base + (interim ? (base ? ' ' : '') + interim : '');
     autoResizeTextarea(ta);
+    if (!interim) {
+      scheduleVoiceAutoSend();
+    } else {
+      clearVoiceAutoSendTimer();
+    }
   };
   rec.onerror = (ev) => {
     if (ev.error === 'aborted' || ev.error === 'no-speech') return;
+    clearVoiceAutoSendTimer();
     stopSpeechIfAny();
   };
   rec.onend = () => {
     speechOn = false;
     mic.classList.remove('listening');
+    scheduleVoiceAutoSend();
   };
   try {
     rec.start();
