@@ -1,0 +1,30 @@
+# 赵思涵 Live（阿权私有服务器）— 部署与常用命令
+
+## 对外端口（NAT）
+- 61930 → 本机 8000：API 网关（聊天、TTS 代理、知识库导入、/deploy/run）
+- 61931 → 本机 8001：前端 Nginx 静态页
+
+## 目录
+- 项目根目录（默认 shell cwd）：/home/linux/sihan-final
+- 网关与伴读：/home/linux/sihan-final/runtime/
+- 知识库导入放这里：/home/linux/sihan-final/runtime/companion_data/kb_import/
+- 记忆 JSON：/home/linux/sihan-final/runtime/companion_data/memory_nac.json
+
+## systemd
+- sudo systemctl restart sihan-gateway.service
+- sudo systemctl restart sihan-tts.service
+- sudo systemctl restart sihan-llama.service
+- systemctl status sihan-gateway.service
+
+## 前端 Docker
+cd /home/linux/sihan-final && docker-compose build frontend && docker rm -f sihan-final_frontend_1 2>/dev/null; docker-compose up -d frontend
+
+## 知识库导入（需请求头 X-Owner-Id / X-API-Key）
+POST /kb/ingest-directory，JSON：{"path":"/home/linux/sihan-final/runtime/companion_data/kb_import"}
+
+## 小涵通过聊天执行服务器命令
+模型在回复里写 ```deploy ... ``` bash 块，网关会执行并把输出附在回复末尾。
+或直接 POST /deploy/run，body：{"command":"...", "cwd":"/home/linux/sihan-final", "timeout_sec":300}
+
+## 搜索
+用户问「怎么安装」「资料」「官网」「报错」等会触发 DuckDuckGo 摘要进入系统上下文。
